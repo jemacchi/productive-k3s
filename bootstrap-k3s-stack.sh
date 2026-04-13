@@ -10,6 +10,12 @@ log(){ printf "\n\033[1;32m[+] %s\033[0m\n" "$*"; }
 warn(){ printf "\n\033[1;33m[!] %s\033[0m\n" "$*"; }
 err(){ printf "\n\033[1;31m[✗] %s\033[0m\n" "$*"; }
 
+DRY_RUN=0
+DRY_RUN_REUSE=()
+DRY_RUN_INSTALL=()
+DRY_RUN_SKIP=()
+DRY_RUN_WARNINGS=()
+
 need_cmd() { command -v "$1" >/dev/null 2>&1; }
 pkg_installed() { dpkg -s "$1" >/dev/null 2>&1; }
 service_active() { systemctl is-active --quiet "$1"; }
@@ -53,15 +59,136 @@ deployment_exists() { kubectl_k3s get deployment "$2" -n "$1" >/dev/null 2>&1; }
 secret_exists() { kubectl_k3s get secret "$2" -n "$1" >/dev/null 2>&1; }
 storageclass_exists() { kubectl_k3s get storageclass "$1" >/dev/null 2>&1; }
 clusterissuer_exists() { kubectl_k3s get clusterissuer "$1" >/dev/null 2>&1; }
-helm_release_exists() { helm status "$1" -n "$2" >/dev/null 2>&1; }
+helm_release_exists() {
+  need_cmd helm || return 1
+  helm status "$1" -n "$2" >/dev/null 2>&1
+}
 
 get_first_ingress_host() {
   local ns="$1" name="$2"
   kubectl_k3s get ingress "$name" -n "$ns" -o jsonpath='{.spec.rules[0].host}' 2>/dev/null || true
 }
 
+run_cmd() {
+  local desc="$1"
+  shift
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log "[dry-run] ${desc}"
+    printf '  '
+    printf '%q ' "$@"
+    printf '\n'
+    return 0
+  fi
+
+  "$@"
+}
+
+run_shell() {
+  local desc="$1" cmd="$2"
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log "[dry-run] ${desc}"
+    echo "  ${cmd}"
+    return 0
+  fi
+
+  bash -lc "$cmd"
+}
+
+apply_manifest() {
+  local desc="$1" manifest="$2"
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log "[dry-run] ${desc}"
+    printf '%s\n' "$manifest"
+    return 0
+  fi
+
+  printf '%s\n' "$manifest" | kubectl_k3s apply -f -
+}
+
+parse_args() {
+  while (($# > 0)); do
+    case "$1" in
+      --dry-run)
+        DRY_RUN=1
+        ;;
+      -h|--help)
+        echo "Usage: $0 [--dry-run]"
+        exit 0
+        ;;
+      *)
+        err "Unknown argument: $1"
+        exit 1
+        ;;
+    esac
+    shift
+  done
+}
+
+track_reuse() {
+  [[ "$DRY_RUN" == "1" ]] || return 0
+  DRY_RUN_REUSE+=("$1")
+}
+
+track_install() {
+  [[ "$DRY_RUN" == "1" ]] || return 0
+  DRY_RUN_INSTALL+=("$1")
+}
+
+track_skip() {
+  [[ "$DRY_RUN" == "1" ]] || return 0
+  DRY_RUN_SKIP+=("$1")
+}
+
+track_warning() {
+  [[ "$DRY_RUN" == "1" ]] || return 0
+  DRY_RUN_WARNINGS+=("$1")
+}
+
+print_dry_run_summary() {
+  [[ "$DRY_RUN" == "1" ]] || return 0
+
+  echo
+  log "Dry-run summary"
+
+  echo "  Reuse existing:"
+  if (( ${#DRY_RUN_REUSE[@]} == 0 )); then
+    echo "    - none"
+  else
+    printf '    - %s\n' "${DRY_RUN_REUSE[@]}"
+  fi
+
+  echo "  Would install/configure:"
+  if (( ${#DRY_RUN_INSTALL[@]} == 0 )); then
+    echo "    - none"
+  else
+    printf '    - %s\n' "${DRY_RUN_INSTALL[@]}"
+  fi
+
+  echo "  Skipped by choice/preflight:"
+  if (( ${#DRY_RUN_SKIP[@]} == 0 )); then
+    echo "    - none"
+  else
+    printf '    - %s\n' "${DRY_RUN_SKIP[@]}"
+  fi
+
+  echo "  Warnings:"
+  if (( ${#DRY_RUN_WARNINGS[@]} == 0 )); then
+    echo "    - none"
+  else
+    printf '    - %s\n' "${DRY_RUN_WARNINGS[@]}"
+  fi
+}
+
 wait_pods_ready() {
   local ns="$1" timeout="${2:-300}"
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log "[dry-run] Skipping wait for namespace '${ns}'."
+    return
+  fi
+
   log "Waiting for pods in namespace '$ns' to be Ready (timeout ${timeout}s)..."
   local start now
   start="$(date +%s)"
@@ -97,13 +224,20 @@ wait_pods_ready() {
 ensure_namespace() {
   local ns="$1"
   if ! namespace_exists "$ns"; then
-    kubectl_k3s create namespace "$ns" >/dev/null
+    run_cmd "Creating namespace ${ns}" kubectl_k3s create namespace "$ns"
   fi
 }
 
 ensure_helm_repo() {
   local name="$1" url="$2"
-  helm repo add "$name" "$url" >/dev/null 2>&1 || true
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log "[dry-run] Adding Helm repo ${name}"
+    echo "  helm repo add ${name} ${url}"
+    return
+  fi
+  if helm repo add "$name" "$url" >/dev/null 2>&1; then
+    return
+  fi
 }
 
 print_detection_summary() {
@@ -144,8 +278,8 @@ ensure_packages() {
   fi
 
   log "Installing packages for ${label}..."
-  sudo apt-get update -y
-  sudo apt-get install -y "${missing[@]}"
+  run_cmd "Updating apt indexes for ${label}" sudo apt-get update -y
+  run_cmd "Installing packages for ${label}" sudo apt-get install -y "${missing[@]}"
 }
 
 ensure_iscsid() {
@@ -157,10 +291,181 @@ ensure_iscsid() {
   local enable_iscsid="y"
   prompt_yesno enable_iscsid "y" "Enable and start 'iscsid' now?"
   if [[ "$enable_iscsid" == "y" ]]; then
-    sudo systemctl enable --now iscsid
+    run_cmd "Enabling and starting iscsid" sudo systemctl enable --now iscsid
   else
     warn "Longhorn requires 'iscsid'. Skipping it may break Longhorn volumes."
   fi
+}
+
+namespace_has_user_resources() {
+  local ns="$1"
+  kubectl_k3s get deploy,statefulset,daemonset,job,cronjob,ingress,pvc -n "$ns" --ignore-not-found --no-headers 2>/dev/null | grep -q .
+}
+
+find_ingress_host_conflicts() {
+  local host="$1" expected_ns="$2" expected_name="$3"
+  kubectl_k3s get ingress -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"|"}{.metadata.name}{"|"}{range .spec.rules[*]}{.host}{"\n"}{end}{end}' 2>/dev/null | \
+    awk -F'|' -v host="$host" -v expected_ns="$expected_ns" -v expected_name="$expected_name" '
+      $3 == host && !($1 == expected_ns && $2 == expected_name) { print $1 "/" $2 }
+    '
+}
+
+count_default_storageclasses() {
+  kubectl_k3s get storageclass -o jsonpath='{range .items[*]}{.metadata.name}{"|"}{.metadata.annotations.storageclass\.kubernetes\.io/is-default-class}{"\n"}{end}' 2>/dev/null | \
+    awk -F'|' '$2 == "true" {count++} END {print count+0}'
+}
+
+confirm_preflight() {
+  local component="$1" warnings_found="$2"
+
+  if (( warnings_found == 0 )); then
+    log "Preflight checks for ${component} passed."
+    return 0
+  fi
+
+  local continue_anyway="n"
+  prompt_yesno continue_anyway "n" "${component} preflight found warnings. Continue anyway?"
+  if [[ "$continue_anyway" != "y" ]]; then
+    warn "${component} installation cancelled."
+    track_skip "${component}: cancelled after preflight warnings"
+    return 1
+  fi
+
+  return 0
+}
+
+preflight_cert_manager_install() {
+  local warnings_found=0
+
+  if ! service_active k3s; then
+    warn "k3s is not active, so cert-manager preflight can only be partial."
+    track_warning "cert-manager: k3s is not active, preflight is partial"
+    ((warnings_found+=1))
+    confirm_preflight "cert-manager" "$warnings_found"
+    return
+  fi
+
+  if namespace_exists cert-manager && namespace_has_user_resources cert-manager; then
+    warn "Namespace 'cert-manager' already contains resources, but cert-manager was not detected as installed."
+    track_warning "cert-manager: namespace already has resources"
+    ((warnings_found+=1))
+  fi
+
+  confirm_preflight "cert-manager" "$warnings_found"
+}
+
+preflight_longhorn_install() {
+  local data_path="$1"
+  local warnings_found=0
+  local default_sc_count=0
+
+  if ! service_active k3s; then
+    warn "k3s is not active, so Longhorn preflight can only be partial."
+    track_warning "Longhorn: k3s is not active, preflight is partial"
+    ((warnings_found+=1))
+    confirm_preflight "Longhorn" "$warnings_found"
+    return
+  fi
+
+  if namespace_exists longhorn-system && namespace_has_user_resources longhorn-system; then
+    warn "Namespace 'longhorn-system' already contains resources, but Longhorn release was not detected."
+    track_warning "Longhorn: longhorn-system namespace already has resources"
+    ((warnings_found+=1))
+  fi
+
+  if storageclass_exists longhorn; then
+    warn "StorageClass 'longhorn' already exists."
+    track_warning "Longhorn: storageclass 'longhorn' already exists"
+    ((warnings_found+=1))
+  fi
+
+  if [[ -e "$data_path" && ! -d "$data_path" ]]; then
+    warn "Longhorn data path '${data_path}' exists and is not a directory."
+    track_warning "Longhorn: data path '${data_path}' exists and is not a directory"
+    ((warnings_found+=1))
+  fi
+
+  if [[ -d "$data_path" ]] && ! mount_exists "$data_path"; then
+    warn "Longhorn data path '${data_path}' exists but is not a mount point."
+    track_warning "Longhorn: data path '${data_path}' exists but is not a mount point"
+    ((warnings_found+=1))
+  fi
+
+  default_sc_count="$(count_default_storageclasses)"
+  if (( default_sc_count > 0 )); then
+    warn "The cluster already has ${default_sc_count} default StorageClass(es)."
+    track_warning "Longhorn: cluster already has ${default_sc_count} default StorageClass(es)"
+    ((warnings_found+=1))
+  fi
+
+  confirm_preflight "Longhorn" "$warnings_found"
+}
+
+preflight_rancher_install() {
+  local rancher_host="$1"
+  local conflicts=""
+  local warnings_found=0
+
+  if ! service_active k3s; then
+    warn "k3s is not active, so Rancher preflight can only be partial."
+    track_warning "Rancher: k3s is not active, preflight is partial"
+    ((warnings_found+=1))
+    confirm_preflight "Rancher" "$warnings_found"
+    return
+  fi
+
+  if namespace_exists cattle-system && namespace_has_user_resources cattle-system; then
+    warn "Namespace 'cattle-system' already contains resources, but Rancher release was not detected."
+    track_warning "Rancher: cattle-system namespace already has resources"
+    ((warnings_found+=1))
+  fi
+
+  conflicts="$(find_ingress_host_conflicts "$rancher_host" "cattle-system" "rancher")"
+  if [[ -n "$conflicts" ]]; then
+    warn "Hostname '${rancher_host}' is already used by these ingress resources:"
+    printf '%s\n' "$conflicts"
+    track_warning "Rancher: hostname '${rancher_host}' already used by other ingress resources"
+    ((warnings_found+=1))
+  fi
+
+  confirm_preflight "Rancher" "$warnings_found"
+}
+
+preflight_registry_install() {
+  local registry_host="$1"
+  local registry_storage_class="$2"
+  local conflicts=""
+  local warnings_found=0
+
+  if ! service_active k3s; then
+    warn "k3s is not active, so registry preflight can only be partial."
+    track_warning "Registry: k3s is not active, preflight is partial"
+    ((warnings_found+=1))
+    confirm_preflight "Registry" "$warnings_found"
+    return
+  fi
+
+  if namespace_exists registry && namespace_has_user_resources registry; then
+    warn "Namespace 'registry' already contains resources, but the registry release was not detected."
+    track_warning "Registry: registry namespace already has resources"
+    ((warnings_found+=1))
+  fi
+
+  conflicts="$(find_ingress_host_conflicts "$registry_host" "registry" "registry-docker-registry")"
+  if [[ -n "$conflicts" ]]; then
+    warn "Hostname '${registry_host}' is already used by these ingress resources:"
+    printf '%s\n' "$conflicts"
+    track_warning "Registry: hostname '${registry_host}' already used by other ingress resources"
+    ((warnings_found+=1))
+  fi
+
+  if [[ -n "$registry_storage_class" ]] && ! storageclass_exists "$registry_storage_class"; then
+    warn "Requested StorageClass '${registry_storage_class}' does not exist."
+    track_warning "Registry: storageclass '${registry_storage_class}' does not exist"
+    ((warnings_found+=1))
+  fi
+
+  confirm_preflight "Registry" "$warnings_found"
 }
 
 prepare_disk_for_longhorn() {
@@ -169,13 +474,13 @@ prepare_disk_for_longhorn() {
 
   if mount_exists "$data_path"; then
     log "Path ${data_path} is already a mount point. Leaving it untouched."
-    sudo mkdir -p "$data_path"
+    run_cmd "Ensuring directory ${data_path} exists" sudo mkdir -p "$data_path"
     return
   fi
 
   prompt_yesno setup_disk "n" "Do you want this script to format+mount a block device to ${data_path}?"
   if [[ "$setup_disk" != "y" ]]; then
-    sudo mkdir -p "$data_path"
+    run_cmd "Ensuring directory ${data_path} exists" sudo mkdir -p "$data_path"
     return
   fi
 
@@ -191,18 +496,23 @@ prepare_disk_for_longhorn() {
   fi
 
   log "Formatting ${disk_dev} as ext4 and mounting it at ${data_path}..."
-  sudo mkfs.ext4 -F "$disk_dev"
-  sudo mkdir -p "$data_path"
-  sudo mount "$disk_dev" "$data_path"
+  run_cmd "Formatting ${disk_dev}" sudo mkfs.ext4 -F "$disk_dev"
+  run_cmd "Creating ${data_path}" sudo mkdir -p "$data_path"
+  run_cmd "Mounting ${disk_dev} on ${data_path}" sudo mount "$disk_dev" "$data_path"
 
   if ! grep -qE "^[^#]*[[:space:]]+${data_path}[[:space:]]+" /etc/fstab; then
-    log "Persisting mount in /etc/fstab..."
-    echo "${disk_dev}  ${data_path}  ext4  defaults  0  2" | sudo tee -a /etc/fstab >/dev/null
+    if [[ "$DRY_RUN" == "1" ]]; then
+      log "[dry-run] Persisting mount in /etc/fstab"
+      echo "  ${disk_dev}  ${data_path}  ext4  defaults  0  2"
+    else
+      log "Persisting mount in /etc/fstab..."
+      echo "${disk_dev}  ${data_path}  ext4  defaults  0  2" | sudo tee -a /etc/fstab >/dev/null
+    fi
   else
     warn "/etc/fstab already contains an entry for ${data_path}; leaving it unchanged."
   fi
 
-  sudo mount -a
+  run_cmd "Reloading mounts" sudo mount -a
 }
 
 install_k3s_if_needed() {
@@ -213,6 +523,7 @@ install_k3s_if_needed() {
       err "k3s is required for the remaining steps."
       exit 1
     fi
+    track_reuse "k3s"
     return
   fi
 
@@ -223,9 +534,10 @@ install_k3s_if_needed() {
     exit 1
   fi
 
+  track_install "k3s"
   ensure_packages "k3s installation" curl ca-certificates
   log "Installing k3s (stable channel)..."
-  curl -sfL https://get.k3s.io | sh -
+  run_shell "Installing k3s (stable channel)" "curl -sfL https://get.k3s.io | sh -"
 }
 
 install_helm_if_needed() {
@@ -236,6 +548,7 @@ install_helm_if_needed() {
       err "Helm is required for chart-based installs."
       exit 1
     fi
+    track_reuse "helm"
     return
   fi
 
@@ -246,9 +559,10 @@ install_helm_if_needed() {
     exit 1
   fi
 
+  track_install "helm"
   ensure_packages "Helm installation" curl ca-certificates
   log "Installing Helm..."
-  curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+  run_shell "Installing Helm" "curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash"
 }
 
 ensure_cert_manager() {
@@ -261,6 +575,7 @@ ensure_cert_manager() {
       err "Rancher and registry TLS setup in this script requires cert-manager."
       exit 1
     fi
+    track_reuse "cert-manager"
     return
   fi
 
@@ -271,9 +586,11 @@ ensure_cert_manager() {
     exit 1
   fi
 
+  track_install "cert-manager"
+  preflight_cert_manager_install || exit 1
   log "Installing cert-manager..."
   ensure_namespace cert-manager
-  kubectl_k3s apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+  run_cmd "Applying cert-manager manifest" sudo k3s kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
   wait_pods_ready "cert-manager" 420
 }
 
@@ -285,6 +602,7 @@ ensure_issuer() {
 
   if clusterissuer_exists "$issuer_name"; then
     log "ClusterIssuer '${issuer_name}' already exists. Leaving it untouched."
+    track_reuse "clusterissuer/${issuer_name}"
     return
   fi
 
@@ -295,9 +613,10 @@ ensure_issuer() {
     exit 1
   fi
 
+  track_install "clusterissuer/${issuer_name}"
   log "Creating ClusterIssuer '${issuer_name}'..."
   if [[ "$tls_choice" == "1" ]]; then
-    cat <<EOF | kubectl_k3s apply -f -
+    apply_manifest "Creating ClusterIssuer ${issuer_name}" "$(cat <<EOF
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
@@ -313,8 +632,9 @@ spec:
         ingress:
           ingressClassName: traefik
 EOF
+)"
   else
-    cat <<EOF | kubectl_k3s apply -f -
+    apply_manifest "Creating ClusterIssuer ${issuer_name}" "$(cat <<EOF
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
@@ -322,6 +642,7 @@ metadata:
 spec:
   selfSigned: {}
 EOF
+)"
   fi
 }
 
@@ -334,9 +655,11 @@ install_longhorn_if_needed() {
     local continue_existing="y"
     prompt_yesno continue_existing "y" "Longhorn is already present. Leave it unchanged and continue?"
     if [[ "$continue_existing" == "y" ]]; then
+      track_reuse "Longhorn"
       return
     fi
     warn "Skipping Longhorn changes."
+    track_skip "Longhorn: existing installation left untouched"
     return
   fi
 
@@ -344,18 +667,21 @@ install_longhorn_if_needed() {
   prompt_yesno install_longhorn "y" "Longhorn is missing. Install it now?"
   if [[ "$install_longhorn" != "y" ]]; then
     warn "Longhorn will not be installed."
+    track_skip "Longhorn: user chose not to install"
     return
   fi
 
+  track_install "Longhorn"
+  preflight_longhorn_install "$longhorn_data_path" || return
   ensure_packages "Longhorn" open-iscsi
   ensure_iscsid
   prepare_disk_for_longhorn "$longhorn_data_path"
 
   log "Installing Longhorn..."
   ensure_helm_repo longhorn https://charts.longhorn.io
-  helm repo update >/dev/null
+  run_cmd "Updating Helm repos for Longhorn" helm repo update
   ensure_namespace longhorn-system
-  helm install longhorn longhorn/longhorn \
+  run_cmd "Installing Longhorn" helm install longhorn longhorn/longhorn \
     --namespace longhorn-system \
     --set defaultSettings.defaultReplicaCount="${replica_count}" \
     --set defaultSettings.defaultDataPath="${longhorn_data_path}"
@@ -365,7 +691,7 @@ install_longhorn_if_needed() {
   prompt_yesno make_default_sc "n" "Make Longhorn the default StorageClass?"
   if [[ "$make_default_sc" == "y" ]]; then
     if storageclass_exists longhorn; then
-      kubectl_k3s patch storageclass longhorn -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}' >/dev/null || true
+      run_cmd "Marking Longhorn as default StorageClass" kubectl_k3s patch storageclass longhorn -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}' || true
     else
       warn "StorageClass 'longhorn' was not found after installation."
     fi
@@ -387,6 +713,7 @@ install_rancher_if_needed() {
     if [[ "$continue_existing" != "y" ]]; then
       warn "Rancher will be left untouched."
     fi
+    track_reuse "Rancher"
     return
   fi
 
@@ -394,17 +721,20 @@ install_rancher_if_needed() {
   prompt_yesno install_rancher "y" "Rancher is missing. Install it now?"
   if [[ "$install_rancher" != "y" ]]; then
     warn "Rancher will not be installed."
+    track_skip "Rancher: user chose not to install"
     return
   fi
 
+  track_install "Rancher"
+  preflight_rancher_install "$rancher_host" || return
   log "Installing Rancher..."
   ensure_helm_repo rancher-latest https://releases.rancher.com/server-charts/latest
-  helm repo update >/dev/null
+  run_cmd "Updating Helm repos for Rancher" helm repo update
   ensure_namespace cattle-system
 
   if [[ "$tls_choice" == "2" ]] && ! secret_exists cattle-system rancher-tls; then
     log "Creating certificate for Rancher..."
-    cat <<EOF | kubectl_k3s apply -f -
+    apply_manifest "Creating Rancher TLS certificate" "$(cat <<EOF
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -418,18 +748,23 @@ spec:
   dnsNames:
   - ${rancher_host}
 EOF
+)"
 
     log "Waiting for Rancher TLS secret to be issued..."
-    for _ in {1..60}; do
-      if secret_exists cattle-system rancher-tls; then
-        break
-      fi
-      sleep 2
-    done
+    if [[ "$DRY_RUN" == "1" ]]; then
+      log "[dry-run] Skipping wait for secret rancher-tls."
+    else
+      for _ in {1..60}; do
+        if secret_exists cattle-system rancher-tls; then
+          break
+        fi
+        sleep 2
+      done
+    fi
   fi
 
   if [[ "$tls_choice" == "1" ]]; then
-    helm install rancher rancher-latest/rancher \
+    run_cmd "Installing Rancher" helm install rancher rancher-latest/rancher \
       --namespace cattle-system \
       --set hostname="${rancher_host}" \
       --set bootstrapPassword="${admin_pass}" \
@@ -437,7 +772,7 @@ EOF
       --set letsEncrypt.email="${le_email}" \
       --set letsEncrypt.environment="${le_env}"
   else
-    helm install rancher rancher-latest/rancher \
+    run_cmd "Installing Rancher" helm install rancher rancher-latest/rancher \
       --namespace cattle-system \
       --set hostname="${rancher_host}" \
       --set bootstrapPassword="${admin_pass}" \
@@ -446,8 +781,12 @@ EOF
   fi
 
   log "Waiting for Rancher deployment..."
-  kubectl_k3s -n cattle-system rollout status deploy/rancher --timeout=10m || true
-  kubectl_k3s get pods -n cattle-system -o wide || true
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log "[dry-run] Skipping Rancher rollout wait."
+  else
+    kubectl_k3s -n cattle-system rollout status deploy/rancher --timeout=10m || true
+    kubectl_k3s get pods -n cattle-system -o wide || true
+  fi
 }
 
 install_registry_if_needed() {
@@ -464,6 +803,7 @@ install_registry_if_needed() {
     if [[ "$continue_existing" != "y" ]]; then
       warn "Registry will be left untouched."
     fi
+    track_reuse "Registry"
     return
   fi
 
@@ -471,17 +811,20 @@ install_registry_if_needed() {
   prompt_yesno install_registry "y" "The in-cluster registry is missing. Install it now?"
   if [[ "$install_registry" != "y" ]]; then
     warn "Registry will not be installed."
+    track_skip "Registry: user chose not to install"
     return
   fi
 
+  track_install "Registry"
+  preflight_registry_install "$registry_host" "$registry_storage_class" || return
   log "Installing the in-cluster Docker Registry..."
   ensure_helm_repo twuni https://helm.twun.io
-  helm repo update >/dev/null
+  run_cmd "Updating Helm repos for registry" helm repo update
   ensure_namespace registry
 
   if [[ "$tls_choice" == "2" ]] && ! secret_exists registry registry-tls; then
     log "Creating certificate for the registry..."
-    cat <<EOF | kubectl_k3s apply -f -
+    apply_manifest "Creating registry TLS certificate" "$(cat <<EOF
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -495,6 +838,7 @@ spec:
   dnsNames:
   - ${registry_host}
 EOF
+)"
   fi
 
   local helm_cmd=(
@@ -516,22 +860,32 @@ EOF
     helm_cmd+=(--set "ingress.annotations.cert-manager\\.io/cluster-issuer=${issuer_name}")
   fi
 
-  "${helm_cmd[@]}"
+  run_cmd "Installing the in-cluster registry" "${helm_cmd[@]}"
   wait_pods_ready "registry" 300
 }
 
 main() {
+  parse_args "$@"
   sudo_keepalive
 
   log "Incremental bootstrap: k3s + Rancher + Longhorn + Registry (Ubuntu)"
+  if [[ "$DRY_RUN" == "1" ]]; then
+    warn "Running in dry-run mode. No changes will be applied."
+  fi
 
   install_k3s_if_needed
 
-  log "Checking k3s node..."
-  kubectl_k3s get nodes -o wide
+  if service_active k3s; then
+    log "Checking k3s node..."
+    kubectl_k3s get nodes -o wide
+  else
+    warn "k3s is not active yet. Cluster-level checks will be partial until it is installed for real."
+  fi
 
   install_helm_if_needed
-  export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+  if [[ -f /etc/rancher/k3s/k3s.yaml ]]; then
+    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+  fi
 
   local cert_manager_present="n"
   local longhorn_present="n"
@@ -645,6 +999,7 @@ main() {
   echo
   echo "  Rancher URL:  https://${RANCHER_HOST}"
   echo "  Registry URL: https://${REGISTRY_HOST}"
+  print_dry_run_summary
 }
 
 main "$@"
