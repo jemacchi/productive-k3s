@@ -64,6 +64,48 @@ helm_release_exists() {
   helm status "$1" -n "$2" >/dev/null 2>&1
 }
 
+get_primary_node_ip() {
+  local ip=""
+
+  if service_active k3s; then
+    ip="$(kubectl_k3s get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || true)"
+  fi
+
+  if [[ -z "$ip" ]]; then
+    ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+  fi
+
+  printf '%s' "$ip"
+}
+
+nfs_path_looks_valid() {
+  local path="$1"
+  [[ "$path" == /* ]] && [[ "$path" != "y" ]] && [[ "$path" != "n" ]]
+}
+
+nfs_network_looks_valid() {
+  local network="$1"
+  [[ "$network" =~ ^[^[:space:]]+(/[0-9]{1,2})?$ ]] && [[ "$network" != "y" ]] && [[ "$network" != "n" ]]
+}
+nfs_export_exists() {
+  local path="$1"
+  grep -qE "^[[:space:]]*${path//\//\\/}[[:space:]]" /etc/exports 2>/dev/null
+}
+
+nfs_service_name() {
+  if systemctl list-unit-files nfs-server.service >/dev/null 2>&1; then
+    echo "nfs-server"
+  else
+    echo "nfs-kernel-server"
+  fi
+}
+
+nfs_server_active() {
+  local service_name
+  service_name="$(nfs_service_name)"
+  service_active "$service_name"
+}
+
 get_first_ingress_host() {
   local ns="$1" name="$2"
   kubectl_k3s get ingress "$name" -n "$ns" -o jsonpath='{.spec.rules[0].host}' 2>/dev/null || true
@@ -106,6 +148,142 @@ apply_manifest() {
   fi
 
   printf '%s\n' "$manifest" | kubectl_k3s apply -f -
+}
+
+wait_for_secret() {
+  local ns="$1" name="$2" timeout="${3:-120}"
+  local start now
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log "[dry-run] Skipping wait for secret ${ns}/${name}."
+    return 0
+  fi
+
+  start="$(date +%s)"
+  while true; do
+    if secret_exists "$ns" "$name"; then
+      return 0
+    fi
+
+    now="$(date +%s)"
+    if (( now - start > timeout )); then
+      return 1
+    fi
+    sleep 2
+  done
+}
+
+ensure_rancher_private_ca_secret() {
+  local source_secret_ns="cattle-system"
+  local source_secret_name="rancher-tls"
+  local target_secret_name="tls-ca"
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log "[dry-run] Creating Rancher CA secret ${source_secret_ns}/${target_secret_name} from ${source_secret_name}"
+    echo "  kubectl create secret generic ${target_secret_name} --from-literal=cacerts.pem=<ca.crt from ${source_secret_name}>"
+    return 0
+  fi
+
+  local ca_crt
+  ca_crt="$(kubectl_k3s get secret "$source_secret_name" -n "$source_secret_ns" -o jsonpath='{.data.ca\.crt}' | base64 -d)"
+  if [[ -z "$ca_crt" ]]; then
+    err "Secret ${source_secret_ns}/${source_secret_name} does not contain ca.crt; Rancher private CA cannot be configured."
+    exit 1
+  fi
+
+  kubectl_k3s delete secret "$target_secret_name" -n "$source_secret_ns" >/dev/null 2>&1 || true
+  kubectl_k3s create secret generic "$target_secret_name" -n "$source_secret_ns" --from-literal=cacerts.pem="$ca_crt" >/dev/null
+}
+
+ensure_local_hosts_entries() {
+  local target_ip="$1"
+  shift
+  local hosts=("$@")
+
+  if [[ -z "$target_ip" || ${#hosts[@]} -eq 0 ]]; then
+    warn "Skipping /etc/hosts update because the target IP or hostnames are missing."
+    return
+  fi
+
+  local hosts_regex
+  hosts_regex="$(printf '%s\n' "${hosts[@]}" | sed 's/[.[\\*^$()+?{|]/\\\\&/g' | paste -sd'|' -)"
+  local host_line="${target_ip} ${hosts[*]}"
+  local cmd="tmp=\$(mktemp); grep -vE '(^|[[:space:]])(${hosts_regex})([[:space:]]|$)' /etc/hosts > \"\$tmp\" || true; printf '%s\\n' '${host_line}' >> \"\$tmp\"; cat \"\$tmp\" > /etc/hosts; rm -f \"\$tmp\""
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log "[dry-run] Adding/updating local /etc/hosts entries"
+    echo "  ${host_line}"
+    return
+  fi
+
+  run_cmd "Adding/updating local /etc/hosts entries" sudo bash -lc "$cmd"
+}
+
+ensure_local_docker_registry_trust() {
+  local registry_host="$1"
+
+  if [[ -z "$registry_host" ]]; then
+    warn "Skipping Docker trust setup because the registry hostname is missing."
+    return
+  fi
+
+  if ! need_cmd docker; then
+    warn "Skipping Docker trust setup because docker is not installed on this machine."
+    return
+  fi
+
+  if ! secret_exists registry registry-tls; then
+    warn "Skipping Docker trust setup because registry/registry-tls does not exist."
+    return
+  fi
+
+  local cert_dir="/etc/docker/certs.d/${registry_host}"
+  local cert_file="${cert_dir}/ca.crt"
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log "[dry-run] Installing Docker trust for ${registry_host}"
+    echo "  sudo mkdir -p ${cert_dir}"
+    echo "  kubectl get secret registry-tls -n registry -o jsonpath='{.data.tls\\.crt}' | base64 -d | sudo tee ${cert_file}"
+    echo "  sudo systemctl restart docker"
+    return
+  fi
+
+  run_cmd "Creating Docker cert directory ${cert_dir}" sudo mkdir -p "$cert_dir"
+  kubectl_k3s get secret registry-tls -n registry -o jsonpath='{.data.tls\.crt}' | base64 -d | sudo tee "$cert_file" >/dev/null
+
+  if systemctl list-unit-files docker.service >/dev/null 2>&1; then
+    run_cmd "Restarting Docker" sudo systemctl restart docker
+  else
+    warn "Docker certificate installed for ${registry_host}, but docker.service was not found for automatic restart."
+  fi
+}
+
+ensure_user_kubeconfig() {
+  local source_kubeconfig="/etc/rancher/k3s/k3s.yaml"
+  local target_dir="${HOME}/.kube"
+  local target_kubeconfig="${target_dir}/k3s.yaml"
+
+  if [[ ! -f "$source_kubeconfig" ]]; then
+    err "k3s kubeconfig was not found at ${source_kubeconfig}."
+    exit 1
+  fi
+
+  if [[ ! -d "$target_dir" ]]; then
+    run_cmd "Creating ${target_dir}" mkdir -p "$target_dir"
+  fi
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log "[dry-run] Preparing user kubeconfig at ${target_kubeconfig}"
+    echo "  sudo cp ${source_kubeconfig} ${target_kubeconfig}"
+    echo "  sudo chown $(id -u):$(id -g) ${target_kubeconfig}"
+    echo "  chmod 600 ${target_kubeconfig}"
+  else
+    sudo cp "$source_kubeconfig" "$target_kubeconfig"
+    sudo chown "$(id -u):$(id -g)" "$target_kubeconfig"
+    chmod 600 "$target_kubeconfig"
+  fi
+
+  export KUBECONFIG="$target_kubeconfig"
 }
 
 parse_args() {
@@ -235,13 +413,21 @@ ensure_helm_repo() {
     echo "  helm repo add ${name} ${url}"
     return
   fi
+
+  if helm repo list 2>/dev/null | awk 'NR>1 {print $1}' | grep -qx "$name"; then
+    return
+  fi
+
   if helm repo add "$name" "$url" >/dev/null 2>&1; then
     return
   fi
+
+  err "Failed to add Helm repo '${name}' (${url})."
+  exit 1
 }
 
 print_detection_summary() {
-  local k3s_state="$1" helm_state="$2" cert_state="$3" longhorn_state="$4" rancher_state="$5" registry_state="$6"
+  local k3s_state="$1" helm_state="$2" cert_state="$3" longhorn_state="$4" rancher_state="$5" registry_state="$6" nfs_state="$7"
   echo
   log "Detected environment"
   echo "  k3s:          ${k3s_state}"
@@ -250,6 +436,7 @@ print_detection_summary() {
   echo "  longhorn:     ${longhorn_state}"
   echo "  rancher:      ${rancher_state}"
   echo "  registry:     ${registry_state}"
+  echo "  nfs-server:   ${nfs_state}"
 }
 
 ensure_packages() {
@@ -451,7 +638,7 @@ preflight_registry_install() {
     ((warnings_found+=1))
   fi
 
-  conflicts="$(find_ingress_host_conflicts "$registry_host" "registry" "registry-docker-registry")"
+  conflicts="$(find_ingress_host_conflicts "$registry_host" "registry" "registry")"
   if [[ -n "$conflicts" ]]; then
     warn "Hostname '${registry_host}' is already used by these ingress resources:"
     printf '%s\n' "$conflicts"
@@ -466,6 +653,32 @@ preflight_registry_install() {
   fi
 
   confirm_preflight "Registry" "$warnings_found"
+}
+
+preflight_nfs_install() {
+  local export_path="$1"
+  local allowed_network="$2"
+  local warnings_found=0
+
+  if [[ -e "$export_path" && ! -d "$export_path" ]]; then
+    warn "NFS export path '${export_path}' exists and is not a directory."
+    track_warning "NFS: export path '${export_path}' exists and is not a directory"
+    ((warnings_found+=1))
+  fi
+
+  if nfs_export_exists "$export_path"; then
+    warn "NFS export path '${export_path}' is already present in /etc/exports."
+    track_warning "NFS: export path '${export_path}' already exists in /etc/exports"
+    ((warnings_found+=1))
+  fi
+
+  if ! nfs_network_looks_valid "$allowed_network"; then
+    warn "Allowed network '${allowed_network}' contains spaces or is malformed."
+    track_warning "NFS: allowed network '${allowed_network}' looks malformed"
+    ((warnings_found+=1))
+  fi
+
+  confirm_preflight "NFS" "$warnings_found"
 }
 
 prepare_disk_for_longhorn() {
@@ -751,16 +964,12 @@ EOF
 )"
 
     log "Waiting for Rancher TLS secret to be issued..."
-    if [[ "$DRY_RUN" == "1" ]]; then
-      log "[dry-run] Skipping wait for secret rancher-tls."
-    else
-      for _ in {1..60}; do
-        if secret_exists cattle-system rancher-tls; then
-          break
-        fi
-        sleep 2
-      done
+    if ! wait_for_secret cattle-system rancher-tls 120; then
+      err "Timed out waiting for cattle-system/rancher-tls."
+      exit 1
     fi
+
+    ensure_rancher_private_ca_secret
   fi
 
   if [[ "$tls_choice" == "1" ]]; then
@@ -796,6 +1005,9 @@ install_registry_if_needed() {
   local registry_host="$4"
   local registry_size="$5"
   local registry_storage_class="$6"
+  local registry_auth_enabled="$7"
+  local registry_auth_user="$8"
+  local registry_auth_password="$9"
 
   if [[ "$registry_present" == "y" ]]; then
     local continue_existing="y"
@@ -818,8 +1030,6 @@ install_registry_if_needed() {
   track_install "Registry"
   preflight_registry_install "$registry_host" "$registry_storage_class" || return
   log "Installing the in-cluster Docker Registry..."
-  ensure_helm_repo twuni https://helm.twun.io
-  run_cmd "Updating Helm repos for registry" helm repo update
   ensure_namespace registry
 
   if [[ "$tls_choice" == "2" ]] && ! secret_exists registry registry-tls; then
@@ -841,27 +1051,223 @@ EOF
 )"
   fi
 
-  local helm_cmd=(
-    helm install registry twuni/docker-registry
-    --namespace registry
-    --set persistence.enabled=true
-    --set "persistence.size=${registry_size}"
-    --set ingress.enabled=true
-    --set "ingress.hosts[0]=${registry_host}"
-    --set "ingress.tls[0].hosts[0]=${registry_host}"
-    --set ingress.tls[0].secretName=registry-tls
-  )
+  if [[ "$registry_auth_enabled" == "y" ]]; then
+    if ! need_cmd openssl; then
+      err "openssl is required to generate registry htpasswd entries."
+      exit 1
+    fi
 
+    local auth_hash
+    auth_hash="$(openssl passwd -apr1 "$registry_auth_password")"
+    if [[ -z "$auth_hash" ]]; then
+      err "Failed to generate registry htpasswd entry."
+      exit 1
+    fi
+
+    if [[ "$DRY_RUN" == "1" ]]; then
+      log "[dry-run] Creating/updating registry basic-auth secret"
+      echo "  username: ${registry_auth_user}"
+    else
+      kubectl_k3s delete secret registry-auth -n registry >/dev/null 2>&1 || true
+      printf '%s:%s\n' "$registry_auth_user" "$auth_hash" | kubectl_k3s create secret generic registry-auth -n registry --from-file=htpasswd=/dev/stdin >/dev/null
+    fi
+  fi
+
+  local pvc_storage_class_block=""
   if [[ -n "$registry_storage_class" ]]; then
-    helm_cmd+=(--set "persistence.storageClass=${registry_storage_class}")
+    pvc_storage_class_block="  storageClassName: ${registry_storage_class}"
   fi
 
+  local ingress_annotations=""
   if [[ "$tls_choice" == "1" ]]; then
-    helm_cmd+=(--set "ingress.annotations.cert-manager\\.io/cluster-issuer=${issuer_name}")
+    ingress_annotations="  annotations:
+    cert-manager.io/cluster-issuer: ${issuer_name}"
   fi
 
-  run_cmd "Installing the in-cluster registry" "${helm_cmd[@]}"
+  local registry_auth_env_block=""
+  local registry_auth_mount_block=""
+  local registry_auth_volume_block=""
+  if [[ "$registry_auth_enabled" == "y" ]]; then
+    registry_auth_env_block="        - name: REGISTRY_AUTH
+          value: htpasswd
+        - name: REGISTRY_AUTH_HTPASSWD_REALM
+          value: Registry Realm
+        - name: REGISTRY_AUTH_HTPASSWD_PATH
+          value: /auth/htpasswd"
+    registry_auth_mount_block="        - name: auth
+          mountPath: /auth
+          readOnly: true"
+    registry_auth_volume_block="      - name: auth
+        secret:
+          secretName: registry-auth"
+  fi
+
+  apply_manifest "Installing the in-cluster registry" "$(cat <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry
+  namespace: registry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: registry
+  template:
+    metadata:
+      labels:
+        app: registry
+    spec:
+      containers:
+      - name: registry
+        image: registry:2
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 5000
+          name: http
+        env:
+        - name: REGISTRY_HTTP_ADDR
+          value: 0.0.0.0:5000
+${registry_auth_env_block}
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/registry
+${registry_auth_mount_block}
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: registry-data
+${registry_auth_volume_block}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: registry
+  namespace: registry
+spec:
+  selector:
+    app: registry
+  ports:
+  - name: http
+    port: 5000
+    targetPort: http
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: registry-data
+  namespace: registry
+spec:
+  accessModes:
+  - ReadWriteOnce
+${pvc_storage_class_block}
+  resources:
+    requests:
+      storage: ${registry_size}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: registry
+  namespace: registry
+${ingress_annotations}
+spec:
+  tls:
+  - hosts:
+    - ${registry_host}
+    secretName: registry-tls
+  rules:
+  - host: ${registry_host}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: registry
+            port:
+              number: 5000
+EOF
+)"
   wait_pods_ready "registry" 300
+}
+
+install_nfs_if_needed() {
+  local nfs_present="$1"
+  local nfs_export_present="$2"
+  local export_path="$3"
+  local allowed_network="$4"
+  local service_name
+  service_name="$(nfs_service_name)"
+
+  if ! nfs_path_looks_valid "$export_path"; then
+    err "NFS export path '${export_path}' is invalid. It must be an absolute path."
+    exit 1
+  fi
+
+  if ! nfs_network_looks_valid "$allowed_network"; then
+    err "Allowed client network '${allowed_network}' is invalid."
+    exit 1
+  fi
+
+  if [[ "$nfs_present" == "y" && "$nfs_export_present" == "y" ]]; then
+    local continue_existing="y"
+    prompt_yesno continue_existing "y" "NFS server and export are already present. Leave them unchanged and continue?"
+    if [[ "$continue_existing" == "y" ]]; then
+      track_reuse "NFS server"
+      track_reuse "NFS export ${export_path}"
+      return
+    fi
+    warn "NFS server will be left untouched."
+    track_skip "NFS: existing installation left untouched"
+    return
+  fi
+
+  if [[ "$nfs_present" == "y" && "$nfs_export_present" != "y" ]]; then
+    local add_export="y"
+    prompt_yesno add_export "y" "NFS server is present but export '${export_path}' is missing. Add it now?"
+    if [[ "$add_export" != "y" ]]; then
+      warn "NFS export will not be configured."
+      track_reuse "NFS server"
+      track_skip "NFS export: user chose not to configure '${export_path}'"
+      return
+    fi
+
+    track_reuse "NFS server"
+    track_install "NFS export ${export_path} (${allowed_network})"
+    preflight_nfs_install "$export_path" "$allowed_network" || return
+  else
+    local install_nfs="y"
+    prompt_yesno install_nfs "y" "NFS server is missing. Install and configure it now?"
+    if [[ "$install_nfs" != "y" ]]; then
+      warn "NFS server will not be installed."
+      track_skip "NFS: user chose not to install"
+      return
+    fi
+
+    track_install "NFS server"
+    track_install "NFS export ${export_path} (${allowed_network})"
+    preflight_nfs_install "$export_path" "$allowed_network" || return
+    ensure_packages "NFS server" nfs-kernel-server
+    run_cmd "Enabling and starting ${service_name}" sudo systemctl enable --now "$service_name"
+  fi
+
+  run_cmd "Creating NFS export directory ${export_path}" sudo mkdir -p "$export_path"
+
+  if nfs_export_exists "$export_path"; then
+    log "NFS export for ${export_path} already exists in /etc/exports. Leaving it untouched."
+  else
+    local export_line="${export_path} ${allowed_network}(rw,sync,no_subtree_check)"
+    if [[ "$DRY_RUN" == "1" ]]; then
+      log "[dry-run] Adding NFS export to /etc/exports"
+      echo "  ${export_line}"
+    else
+      log "Adding NFS export to /etc/exports..."
+      echo "${export_line}" | sudo tee -a /etc/exports >/dev/null
+    fi
+  fi
+
+  run_cmd "Reloading NFS exports" sudo exportfs -ra
 }
 
 main() {
@@ -883,14 +1289,14 @@ main() {
   fi
 
   install_helm_if_needed
-  if [[ -f /etc/rancher/k3s/k3s.yaml ]]; then
-    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-  fi
+  ensure_user_kubeconfig
 
   local cert_manager_present="n"
   local longhorn_present="n"
   local rancher_present="n"
   local registry_present="n"
+  local nfs_present="n"
+  local nfs_export_present="n"
 
   if deployment_exists cert-manager cert-manager; then
     cert_manager_present="y"
@@ -901,14 +1307,17 @@ main() {
   if helm_release_exists rancher cattle-system || deployment_exists cattle-system rancher; then
     rancher_present="y"
   fi
-  if helm_release_exists registry registry || namespace_exists registry; then
+  if helm_release_exists registry registry || deployment_exists registry registry || secret_exists registry registry-tls || get_first_ingress_host registry registry | grep -q .; then
     registry_present="y"
+  fi
+  if pkg_installed nfs-kernel-server || nfs_server_active; then
+    nfs_present="y"
   fi
 
   local rancher_existing_host=""
   local registry_existing_host=""
   rancher_existing_host="$(get_first_ingress_host cattle-system rancher)"
-  registry_existing_host="$(get_first_ingress_host registry registry-docker-registry)"
+  registry_existing_host="$(get_first_ingress_host registry registry)"
 
   print_detection_summary \
     "$(service_active k3s && echo present || echo missing)" \
@@ -916,7 +1325,8 @@ main() {
     "$( [[ "$cert_manager_present" == "y" ]] && echo present || echo missing )" \
     "$( [[ "$longhorn_present" == "y" ]] && echo present || echo missing )" \
     "$( [[ "$rancher_present" == "y" ]] && echo present || echo missing )" \
-    "$( [[ "$registry_present" == "y" ]] && echo present || echo missing )"
+    "$( [[ "$registry_present" == "y" ]] && echo present || echo missing )" \
+    "$( [[ "$nfs_present" == "y" ]] && echo present || echo missing )"
 
   local DEFAULT_DOMAIN="example.local"
   local DOMAIN="$DEFAULT_DOMAIN"
@@ -931,6 +1341,15 @@ main() {
   local LE_EMAIL="you@example.com"
   local LE_ENV="staging"
   local ISSUER_NAME="selfsigned"
+  local NFS_EXPORT_PATH="/srv/nfs/k8s-share"
+  local NFS_ALLOWED_NETWORK="192.168.0.0/24"
+  local MANAGE_LOCAL_HOSTS="y"
+  local TRUST_REGISTRY_IN_DOCKER="n"
+  local REGISTRY_AUTH_ENABLED="n"
+  local REGISTRY_AUTH_USER="registry"
+  local REGISTRY_AUTH_PASSWORD="change-me"
+  local NODE_IP
+  NODE_IP="$(get_primary_node_ip)"
 
   if [[ "$longhorn_present" != "y" ]]; then
     prompt LONGHORN_DATA_PATH "$LONGHORN_DATA_PATH" "Longhorn data mount path"
@@ -947,6 +1366,11 @@ main() {
       REGISTRY_STORAGE_CLASS="longhorn"
     fi
     prompt REGISTRY_STORAGE_CLASS "$REGISTRY_STORAGE_CLASS" "Registry StorageClass (blank uses cluster default)"
+    prompt_yesno REGISTRY_AUTH_ENABLED "$REGISTRY_AUTH_ENABLED" "Do you want to enable basic auth on the in-cluster registry?"
+    if [[ "$REGISTRY_AUTH_ENABLED" == "y" ]]; then
+      prompt REGISTRY_AUTH_USER "$REGISTRY_AUTH_USER" "Registry username"
+      prompt REGISTRY_AUTH_PASSWORD "$REGISTRY_AUTH_PASSWORD" "Registry password"
+    fi
 
     echo
     echo "TLS options:"
@@ -960,6 +1384,22 @@ main() {
     fi
   fi
 
+  prompt_yesno ENABLE_NFS "y" "Do you want to ensure a local NFS server is available for host-to-cluster shared files?"
+  if [[ "$ENABLE_NFS" == "y" ]]; then
+    prompt NFS_EXPORT_PATH "$NFS_EXPORT_PATH" "NFS export path on the host"
+    prompt NFS_ALLOWED_NETWORK "$NFS_ALLOWED_NETWORK" "Allowed client network/CIDR for the NFS export"
+    if nfs_export_exists "$NFS_EXPORT_PATH"; then
+      nfs_export_present="y"
+    fi
+  else
+    track_skip "NFS: user chose not to manage NFS"
+  fi
+
+  prompt_yesno MANAGE_LOCAL_HOSTS "y" "Do you want this script to add/update local /etc/hosts entries for Rancher and Registry on this machine?"
+  if [[ "$TLS_CHOICE" == "2" ]]; then
+    prompt_yesno TRUST_REGISTRY_IN_DOCKER "y" "Do you want this script to trust the registry certificate in local Docker on this machine?"
+  fi
+
   if [[ "$rancher_present" != "y" || "$registry_present" != "y" ]]; then
     ensure_cert_manager "$cert_manager_present"
     ensure_issuer "$TLS_CHOICE" "$ISSUER_NAME" "$LE_EMAIL" "$LE_ENV"
@@ -967,7 +1407,20 @@ main() {
 
   install_longhorn_if_needed "$longhorn_present" "$LONGHORN_DATA_PATH" "$LONGHORN_REPLICA_COUNT"
   install_rancher_if_needed "$rancher_present" "$TLS_CHOICE" "$ISSUER_NAME" "$RANCHER_HOST" "$ADMIN_PASS" "$LE_EMAIL" "$LE_ENV"
-  install_registry_if_needed "$registry_present" "$TLS_CHOICE" "$ISSUER_NAME" "$REGISTRY_HOST" "$REGISTRY_SIZE" "$REGISTRY_STORAGE_CLASS"
+  install_registry_if_needed "$registry_present" "$TLS_CHOICE" "$ISSUER_NAME" "$REGISTRY_HOST" "$REGISTRY_SIZE" "$REGISTRY_STORAGE_CLASS" "$REGISTRY_AUTH_ENABLED" "$REGISTRY_AUTH_USER" "$REGISTRY_AUTH_PASSWORD"
+  if [[ "$ENABLE_NFS" == "y" ]]; then
+    install_nfs_if_needed "$nfs_present" "$nfs_export_present" "$NFS_EXPORT_PATH" "$NFS_ALLOWED_NETWORK"
+  fi
+  if [[ "$MANAGE_LOCAL_HOSTS" == "y" ]]; then
+    ensure_local_hosts_entries "$NODE_IP" "$RANCHER_HOST" "$REGISTRY_HOST"
+  else
+    track_skip "/etc/hosts: user chose not to manage local host entries"
+  fi
+  if [[ "$TLS_CHOICE" == "2" && "$TRUST_REGISTRY_IN_DOCKER" == "y" ]]; then
+    ensure_local_docker_registry_trust "$REGISTRY_HOST"
+  elif [[ "$TLS_CHOICE" == "2" ]]; then
+    track_skip "Docker trust: user chose not to install local registry certificate trust"
+  fi
 
   echo
   log "DONE. Quick checks:"
@@ -976,20 +1429,30 @@ main() {
   echo "  longhorn pods:        sudo k3s kubectl get pods -n longhorn-system"
   echo "  rancher pods:         sudo k3s kubectl get pods -n cattle-system"
   echo "  registry pods:        sudo k3s kubectl get pods -n registry"
+  echo "  nfs exports:          sudo exportfs -v"
   echo
 
   warn "DNS/Hosts:"
   echo "  Ensure these resolve to your VM IP:"
   echo "    ${RANCHER_HOST}"
   echo "    ${REGISTRY_HOST}"
-  echo "  For local testing on the VM itself, you can add to /etc/hosts:"
-  echo "    <VM-IP> ${RANCHER_HOST} ${REGISTRY_HOST}"
+  if [[ "$MANAGE_LOCAL_HOSTS" == "y" ]]; then
+    echo "  Local /etc/hosts entries were updated on this machine:"
+    echo "    ${NODE_IP} ${RANCHER_HOST} ${REGISTRY_HOST}"
+  else
+    echo "  For local testing on the VM itself, you can add to /etc/hosts:"
+    echo "    <VM-IP> ${RANCHER_HOST} ${REGISTRY_HOST}"
+  fi
   echo
 
   if [[ "$TLS_CHOICE" == "2" ]]; then
     warn "Self-signed TLS:"
     echo "  - Your browser and Docker clients may not trust the cert by default."
-    echo "  - To use the registry with docker push/pull from a machine, you typically need to trust the CA/cert."
+    if [[ "$TRUST_REGISTRY_IN_DOCKER" == "y" ]]; then
+      echo "  - Local Docker trust was installed for ${REGISTRY_HOST} on this machine."
+    else
+      echo "  - To use the registry with docker push/pull from a machine, you typically need to trust the CA/cert."
+    fi
   else
     log "Let's Encrypt TLS:"
     echo "  - Make sure ports 80/443 are reachable from the internet and DNS points to this VM."
@@ -999,6 +1462,13 @@ main() {
   echo
   echo "  Rancher URL:  https://${RANCHER_HOST}"
   echo "  Registry URL: https://${REGISTRY_HOST}"
+  if [[ "$registry_present" != "y" && "$REGISTRY_AUTH_ENABLED" == "y" ]]; then
+    echo "  Registry auth: ${REGISTRY_AUTH_USER} / <configured password>"
+  fi
+  if [[ "$ENABLE_NFS" == "y" ]]; then
+    echo "  NFS export:    $(hostname -I 2>/dev/null | awk '{print $1}'):${NFS_EXPORT_PATH}"
+    echo "  NFS clients:   ${NFS_ALLOWED_NETWORK}"
+  fi
   print_dry_run_summary
 }
 
