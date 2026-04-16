@@ -32,6 +32,18 @@ Bootstrap flow:
 4. Show a plan before applying changes
 5. Apply or simulate the selected changes
 
+Run manifest:
+
+- every bootstrap run writes a structured JSON manifest under `runs/`
+- file name format:
+  - `bootstrap-YYYYMMDD-HHMMSS-<host>-<pid>.json`
+- the manifest records:
+  - detected state before execution
+  - planned actions
+  - non-sensitive settings
+  - per-component execution result
+- secrets and passwords are not stored in the manifest
+
 Prompt labels:
 
 - `[required]`: answering `n` stops the bootstrap because the remaining flow would not make sense

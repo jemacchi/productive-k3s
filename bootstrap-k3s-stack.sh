@@ -30,17 +30,150 @@ DRY_RUN_REUSE=()
 DRY_RUN_INSTALL=()
 DRY_RUN_SKIP=()
 DRY_RUN_WARNINGS=()
+RUNS_DIR="runs"
+RUN_ID=""
+RUN_MANIFEST=""
+RUN_STARTED_AT=""
+RUN_STATUS="running"
+CURRENT_STEP=""
+MANIFEST_INITIALIZED=0
+SUDO_KA_PID=""
+declare -A MANIFEST_SETTINGS=()
+declare -A MANIFEST_DETECTED=()
+declare -A MANIFEST_PLANNED=()
+declare -A MANIFEST_RESULT=()
+declare -A MANIFEST_NOTES=()
+MANIFEST_COMPONENT_ORDER=(k3s helm cert_manager clusterissuer longhorn rancher registry nfs local_hosts docker_registry_trust)
 
 need_cmd() { command -v "$1" >/dev/null 2>&1; }
 pkg_installed() { dpkg -s "$1" >/dev/null 2>&1; }
 service_active() { systemctl is-active --quiet "$1"; }
 mount_exists() { mountpoint -q "$1"; }
 
+result_for_mode() {
+  if [[ "$DRY_RUN" == "1" ]]; then
+    printf 'dry-run'
+  else
+    printf '%s' "$1"
+  fi
+}
+
+json_escape() {
+  printf '%s' "$1" | sed \
+    -e 's/\\/\\\\/g' \
+    -e 's/"/\\"/g' \
+    -e ':a;N;$!ba;s/\n/\\n/g' \
+    -e 's/\r/\\r/g' \
+    -e 's/\t/\\t/g'
+}
+
+manifest_set_setting() {
+  MANIFEST_SETTINGS["$1"]="$2"
+}
+
+manifest_record_component() {
+  local component="$1" detected_before="$2" planned_action="$3"
+  MANIFEST_DETECTED["$component"]="$detected_before"
+  MANIFEST_PLANNED["$component"]="$planned_action"
+  if [[ -z "${MANIFEST_RESULT[$component]+x}" ]]; then
+    MANIFEST_RESULT["$component"]="pending"
+  fi
+}
+
+manifest_complete_component() {
+  local component="$1" result="$2" note="${3:-}"
+  MANIFEST_RESULT["$component"]="$result"
+  if [[ -n "$note" ]]; then
+    MANIFEST_NOTES["$component"]="$note"
+  fi
+}
+
+init_run_manifest() {
+  local ts host_sanitized
+  ts="$(date +%Y%m%d-%H%M%S)"
+  host_sanitized="$(hostname 2>/dev/null | tr -cs '[:alnum:]._-' '-')"
+  RUN_ID="${ts}-${host_sanitized}-$$"
+  RUN_STARTED_AT="$(date -Iseconds)"
+  mkdir -p "$RUNS_DIR"
+  RUN_MANIFEST="${RUNS_DIR}/bootstrap-${RUN_ID}.json"
+  MANIFEST_INITIALIZED=1
+}
+
+write_run_manifest() {
+  local exit_code="${1:-0}"
+  [[ "$MANIFEST_INITIALIZED" == "1" ]] || return 0
+
+  local tmp_file
+  tmp_file="$(mktemp)"
+  {
+    printf '{\n'
+    printf '  "run_id": "%s",\n' "$(json_escape "$RUN_ID")"
+    printf '  "script": "bootstrap-k3s-stack.sh",\n'
+    printf '  "mode": "%s",\n' "$( [[ "$DRY_RUN" == "1" ]] && printf 'dry-run' || printf 'apply' )"
+    printf '  "status": "%s",\n' "$(json_escape "$RUN_STATUS")"
+    printf '  "exit_code": %s,\n' "$exit_code"
+    printf '  "started_at": "%s",\n' "$(json_escape "$RUN_STARTED_AT")"
+    printf '  "finished_at": "%s",\n' "$(date -Iseconds)"
+    printf '  "host": "%s",\n' "$(json_escape "$(hostname 2>/dev/null || echo unknown)")"
+    printf '  "user": "%s",\n' "$(json_escape "${USER:-unknown}")"
+    printf '  "cwd": "%s",\n' "$(json_escape "$PWD")"
+    printf '  "current_step": "%s",\n' "$(json_escape "${CURRENT_STEP:-}")"
+
+    printf '  "settings": {\n'
+    local first=1 key
+    for key in base_domain rancher_host registry_host tls_mode letsencrypt_environment longhorn_data_path longhorn_replica_count registry_pvc_size registry_storage_class registry_auth_enabled nfs_manage nfs_export_path nfs_allowed_network manage_local_hosts trust_registry_in_docker; do
+      [[ -n "${MANIFEST_SETTINGS[$key]+x}" ]] || continue
+      if (( first == 0 )); then printf ',\n'; fi
+      first=0
+      printf '    "%s": "%s"' "$(json_escape "$key")" "$(json_escape "${MANIFEST_SETTINGS[$key]}")"
+    done
+    printf '\n  },\n'
+
+    printf '  "components": {\n'
+    first=1
+    local component
+    for component in "${MANIFEST_COMPONENT_ORDER[@]}"; do
+      [[ -n "${MANIFEST_PLANNED[$component]+x}" || -n "${MANIFEST_DETECTED[$component]+x}" || -n "${MANIFEST_RESULT[$component]+x}" ]] || continue
+      if (( first == 0 )); then printf ',\n'; fi
+      first=0
+      printf '    "%s": {' "$(json_escape "$component")"
+      printf '"detected_before": "%s", ' "$(json_escape "${MANIFEST_DETECTED[$component]:-unknown}")"
+      printf '"planned_action": "%s", ' "$(json_escape "${MANIFEST_PLANNED[$component]:-unknown}")"
+      printf '"result": "%s"' "$(json_escape "${MANIFEST_RESULT[$component]:-unknown}")"
+      if [[ -n "${MANIFEST_NOTES[$component]:-}" ]]; then
+        printf ', "note": "%s"' "$(json_escape "${MANIFEST_NOTES[$component]}")"
+      fi
+      printf '}'
+    done
+    printf '\n  }\n'
+    printf '}\n'
+  } > "$tmp_file"
+  mv "$tmp_file" "$RUN_MANIFEST"
+}
+
+cleanup_exit() {
+  local exit_code=$?
+  if [[ -n "${SUDO_KA_PID:-}" ]]; then
+    kill "${SUDO_KA_PID}" >/dev/null 2>&1 || true
+  fi
+  if [[ "$exit_code" -eq 0 ]]; then
+    RUN_STATUS="success"
+  else
+    RUN_STATUS="failed"
+  fi
+  write_run_manifest "$exit_code"
+}
+
 prompt() {
   local var="$1" default="$2" msg="$3"
   local val
-  printf '%s [%s]: ' "$msg" "$default" >&2
-  IFS= read -r val
+  if [[ -r /dev/tty && -w /dev/tty ]]; then
+    printf '%s [%s]: ' "$msg" "$default" > /dev/tty
+    IFS= read -r val < /dev/tty
+  else
+    printf '%s [%s]: ' "$msg" "$default"
+    IFS= read -r val
+  fi
   val="${val:-$default}"
   printf -v "$var" '%s' "$val"
 }
@@ -49,8 +182,13 @@ prompt_yesno() {
   local var="$1" default="$2" msg="$3"
   local val
   local d="$default"
-  printf '%s [%s] (y/n): ' "$msg" "$d" >&2
-  IFS= read -r val
+  if [[ -r /dev/tty && -w /dev/tty ]]; then
+    printf '%s [%s] (y/n): ' "$msg" "$d" > /dev/tty
+    IFS= read -r val < /dev/tty
+  else
+    printf '%s [%s] (y/n): ' "$msg" "$d"
+    IFS= read -r val
+  fi
   val="${val:-$d}"
   case "$val" in
     y|Y) printf -v "$var" 'y' ;;
@@ -72,7 +210,6 @@ sudo_keepalive() {
   fi
   ( while true; do sudo -n true; sleep 30; done ) </dev/null >/dev/null 2>&1 &
   SUDO_KA_PID=$!
-  trap 'kill ${SUDO_KA_PID:-0} >/dev/null 2>&1 || true' EXIT
 }
 
 kubectl_k3s() { sudo k3s kubectl "$@"; }
@@ -237,10 +374,12 @@ ensure_local_hosts_entries() {
     track_install "local /etc/hosts entries"
     log "[dry-run] Adding/updating local /etc/hosts entries"
     line "  ${host_line}"
+    manifest_complete_component "local_hosts" "dry-run" "$host_line"
     return
   fi
 
   run_cmd "Adding/updating local /etc/hosts entries" sudo bash -lc "$cmd"
+  manifest_complete_component "local_hosts" "configured" "$host_line"
 }
 
 ensure_local_docker_registry_trust() {
@@ -270,6 +409,7 @@ ensure_local_docker_registry_trust() {
     line "  sudo mkdir -p ${cert_dir}"
     line "  kubectl get secret registry-tls -n registry -o jsonpath='{.data.tls\\.crt}' | base64 -d | sudo tee ${cert_file}"
     line "  sudo systemctl restart docker"
+    manifest_complete_component "docker_registry_trust" "dry-run" "$registry_host"
     return
   fi
 
@@ -281,6 +421,7 @@ ensure_local_docker_registry_trust() {
   else
     warn "Docker certificate installed for ${registry_host}, but docker.service was not found for automatic restart."
   fi
+  manifest_complete_component "docker_registry_trust" "configured" "$registry_host"
 }
 
 ensure_user_kubeconfig() {
@@ -754,6 +895,7 @@ install_k3s_if_needed() {
   local action="$1"
   if [[ "$action" == "reuse" ]]; then
     track_reuse "k3s"
+    manifest_complete_component "k3s" "$(result_for_mode reused)"
     return
   fi
   if [[ "$action" != "install" ]]; then
@@ -765,12 +907,14 @@ install_k3s_if_needed() {
   ensure_packages "k3s installation" curl ca-certificates
   log "Installing k3s (stable channel)..."
   run_shell "Installing k3s (stable channel)" "curl -sfL https://get.k3s.io | sh -"
+  manifest_complete_component "k3s" "$(result_for_mode installed)"
 }
 
 install_helm_if_needed() {
   local action="$1"
   if [[ "$action" == "reuse" ]]; then
     track_reuse "helm"
+    manifest_complete_component "helm" "$(result_for_mode reused)"
     return
   fi
   if [[ "$action" != "install" ]]; then
@@ -782,6 +926,7 @@ install_helm_if_needed() {
   ensure_packages "Helm installation" curl ca-certificates
   log "Installing Helm..."
   run_shell "Installing Helm" "curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash"
+  manifest_complete_component "helm" "$(result_for_mode installed)"
 }
 
 ensure_cert_manager() {
@@ -790,6 +935,7 @@ ensure_cert_manager() {
 
   if [[ "$action" == "reuse" && "$cert_manager_present" == "y" ]]; then
     track_reuse "cert-manager"
+    manifest_complete_component "cert_manager" "$(result_for_mode reused)"
     return
   fi
 
@@ -804,6 +950,7 @@ ensure_cert_manager() {
   ensure_namespace cert-manager
   run_cmd "Applying cert-manager manifest" sudo k3s kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
   wait_pods_ready "cert-manager" 420
+  manifest_complete_component "cert_manager" "$(result_for_mode installed)"
 }
 
 ensure_issuer() {
@@ -815,6 +962,7 @@ ensure_issuer() {
   if clusterissuer_exists "$issuer_name"; then
     log "ClusterIssuer '${issuer_name}' already exists. Leaving it untouched."
     track_reuse "clusterissuer/${issuer_name}"
+    manifest_complete_component "clusterissuer" "$(result_for_mode reused)" "$issuer_name"
     return
   fi
 
@@ -856,6 +1004,7 @@ spec:
 EOF
 )"
   fi
+  manifest_complete_component "clusterissuer" "$(result_for_mode installed)" "$issuer_name"
 }
 
 install_longhorn_if_needed() {
@@ -866,12 +1015,14 @@ install_longhorn_if_needed() {
 
   if [[ "$action" == "reuse" && "$longhorn_present" == "y" ]]; then
     track_reuse "Longhorn"
+    manifest_complete_component "longhorn" "$(result_for_mode reused)"
     return
   fi
 
   if [[ "$action" != "install" ]]; then
     warn "Longhorn will not be installed."
     track_skip "Longhorn: user chose not to install"
+    manifest_complete_component "longhorn" "skipped"
     return
   fi
 
@@ -902,6 +1053,7 @@ install_longhorn_if_needed() {
       warn "StorageClass 'longhorn' was not found after installation."
     fi
   fi
+  manifest_complete_component "longhorn" "$(result_for_mode installed)"
 }
 
 install_rancher_if_needed() {
@@ -916,12 +1068,14 @@ install_rancher_if_needed() {
 
   if [[ "$action" == "reuse" && "$rancher_present" == "y" ]]; then
     track_reuse "Rancher"
+    manifest_complete_component "rancher" "$(result_for_mode reused)"
     return
   fi
 
   if [[ "$action" != "install" ]]; then
     warn "Rancher will not be installed."
     track_skip "Rancher: user chose not to install"
+    manifest_complete_component "rancher" "skipped"
     return
   fi
 
@@ -983,6 +1137,7 @@ EOF
     kubectl_k3s -n cattle-system rollout status deploy/rancher --timeout=10m || true
     kubectl_k3s get pods -n cattle-system -o wide || true
   fi
+  manifest_complete_component "rancher" "$(result_for_mode installed)"
 }
 
 install_registry_if_needed() {
@@ -999,12 +1154,14 @@ install_registry_if_needed() {
 
   if [[ "$action" == "reuse" && "$registry_present" == "y" ]]; then
     track_reuse "Registry"
+    manifest_complete_component "registry" "$(result_for_mode reused)"
     return
   fi
 
   if [[ "$action" != "install" ]]; then
     warn "Registry will not be installed."
     track_skip "Registry: user chose not to install"
+    manifest_complete_component "registry" "skipped"
     return
   fi
 
@@ -1171,6 +1328,7 @@ spec:
 EOF
 )"
   wait_pods_ready "registry" 300
+  manifest_complete_component "registry" "$(result_for_mode installed)"
 }
 
 install_nfs_if_needed() {
@@ -1195,6 +1353,7 @@ install_nfs_if_needed() {
   if [[ "$action" == "reuse" && "$nfs_present" == "y" && "$nfs_export_present" == "y" ]]; then
       track_reuse "NFS server"
       track_reuse "NFS export ${export_path}"
+      manifest_complete_component "nfs" "$(result_for_mode reused)" "${export_path} ${allowed_network}"
       return
   fi
 
@@ -1210,6 +1369,7 @@ install_nfs_if_needed() {
     run_cmd "Enabling and starting ${service_name}" sudo systemctl enable --now "$service_name"
   else
     track_skip "NFS: user chose not to manage NFS"
+    manifest_complete_component "nfs" "skipped"
     return
   fi
 
@@ -1229,14 +1389,18 @@ install_nfs_if_needed() {
   fi
 
   run_cmd "Reloading NFS exports" sudo exportfs -ra
+  manifest_complete_component "nfs" "$(result_for_mode configured)" "${export_path} ${allowed_network}"
 }
 
 main() {
   parse_args "$@"
+  init_run_manifest
+  trap cleanup_exit EXIT
   bind_stdin_to_tty
   sudo_keepalive
 
   log "Incremental bootstrap: k3s + Rancher + Longhorn + Registry (Ubuntu)"
+  line "  Run manifest: ${RUN_MANIFEST}"
   if [[ "$DRY_RUN" == "1" ]]; then
     warn "Running in dry-run mode. No changes will be applied."
   fi
@@ -1268,6 +1432,13 @@ main() {
   local registry_existing_host=""
   rancher_existing_host="$(get_first_ingress_host cattle-system rancher)"
   registry_existing_host="$(get_first_ingress_host registry registry)"
+
+  manifest_record_component "k3s" "$(service_active k3s && echo present || echo missing)" "pending"
+  manifest_record_component "helm" "$(need_cmd helm && echo present || echo missing)" "pending"
+  manifest_record_component "cert_manager" "$( [[ "$cert_manager_present" == "y" ]] && echo present || echo missing )" "pending"
+  manifest_record_component "longhorn" "$( [[ "$longhorn_present" == "y" ]] && echo present || echo missing )" "pending"
+  manifest_record_component "rancher" "$( [[ "$rancher_present" == "y" ]] && echo present || echo missing )" "pending"
+  manifest_record_component "registry" "$( [[ "$registry_present" == "y" ]] && echo present || echo missing )" "pending"
 
   print_detection_summary \
     "$(service_active k3s && echo present || echo missing)" \
@@ -1311,7 +1482,7 @@ main() {
 
   local K3S_ACTION="reuse"
   local HELM_ACTION="reuse"
-  local CERT_MANAGER_ACTION="reuse"
+  local CERT_MANAGER_ACTION="skip"
   local LONGHORN_ACTION="reuse"
   local RANCHER_ACTION="reuse"
   local REGISTRY_ACTION="reuse"
@@ -1408,6 +1579,14 @@ main() {
     track_skip "NFS: user chose not to manage NFS"
   fi
 
+  if [[ "$nfs_present" == "y" && "$nfs_export_present" == "y" ]]; then
+    manifest_record_component "nfs" "present-with-export" "$NFS_ACTION"
+  elif [[ "$nfs_present" == "y" ]]; then
+    manifest_record_component "nfs" "present-without-export" "$NFS_ACTION"
+  else
+    manifest_record_component "nfs" "missing" "$NFS_ACTION"
+  fi
+
   prompt_yesno MANAGE_LOCAL_HOSTS "y" "Do you want this script to add/update local /etc/hosts entries for Rancher and Registry on this machine? [optional]"
 
   if [[ "$RANCHER_ACTION" == "install" || "$REGISTRY_ACTION" == "install" ]]; then
@@ -1451,6 +1630,42 @@ main() {
     prompt_yesno TRUST_REGISTRY_IN_DOCKER "y" "Do you want this script to trust the registry certificate in local Docker on this machine? [optional]"
   fi
 
+  manifest_set_setting "base_domain" "$DOMAIN"
+  manifest_set_setting "rancher_host" "$RANCHER_HOST"
+  manifest_set_setting "registry_host" "$REGISTRY_HOST"
+  manifest_set_setting "tls_mode" "$( [[ "$TLS_CHOICE" == "1" ]] && echo letsencrypt || echo self-signed )"
+  manifest_set_setting "letsencrypt_environment" "$LE_ENV"
+  manifest_set_setting "longhorn_data_path" "$LONGHORN_DATA_PATH"
+  manifest_set_setting "longhorn_replica_count" "$LONGHORN_REPLICA_COUNT"
+  manifest_set_setting "registry_pvc_size" "$REGISTRY_SIZE"
+  manifest_set_setting "registry_storage_class" "$REGISTRY_STORAGE_CLASS"
+  manifest_set_setting "registry_auth_enabled" "$REGISTRY_AUTH_ENABLED"
+  manifest_set_setting "nfs_manage" "$ENABLE_NFS"
+  manifest_set_setting "nfs_export_path" "$NFS_EXPORT_PATH"
+  manifest_set_setting "nfs_allowed_network" "$NFS_ALLOWED_NETWORK"
+  manifest_set_setting "manage_local_hosts" "$MANAGE_LOCAL_HOSTS"
+  manifest_set_setting "trust_registry_in_docker" "$TRUST_REGISTRY_IN_DOCKER"
+
+  MANIFEST_PLANNED["k3s"]="$K3S_ACTION"
+  MANIFEST_PLANNED["helm"]="$HELM_ACTION"
+  MANIFEST_PLANNED["cert_manager"]="$CERT_MANAGER_ACTION"
+  MANIFEST_PLANNED["longhorn"]="$LONGHORN_ACTION"
+  MANIFEST_PLANNED["rancher"]="$RANCHER_ACTION"
+  MANIFEST_PLANNED["registry"]="$REGISTRY_ACTION"
+  MANIFEST_PLANNED["nfs"]="$NFS_ACTION"
+  MANIFEST_DETECTED["local_hosts"]="unknown"
+  MANIFEST_PLANNED["local_hosts"]="$( [[ "$MANAGE_LOCAL_HOSTS" == "y" ]] && echo update || echo skip )"
+  MANIFEST_DETECTED["docker_registry_trust"]="unknown"
+  MANIFEST_PLANNED["docker_registry_trust"]="$( [[ "$TLS_CHOICE" == "2" && "$TRUST_REGISTRY_IN_DOCKER" == "y" ]] && echo install || echo skip )"
+  if [[ "$RANCHER_ACTION" == "install" || "$REGISTRY_ACTION" == "install" ]]; then
+    MANIFEST_DETECTED["clusterissuer"]="$( clusterissuer_exists "$ISSUER_NAME" && echo present || echo missing )"
+    MANIFEST_PLANNED["clusterissuer"]="ensure"
+  else
+    MANIFEST_DETECTED["clusterissuer"]="not-needed"
+    MANIFEST_PLANNED["clusterissuer"]="skip"
+    MANIFEST_RESULT["clusterissuer"]="skipped"
+  fi
+
   print_plan_summary \
     "$K3S_ACTION" \
     "$HELM_ACTION" \
@@ -1463,11 +1678,14 @@ main() {
     "$( [[ "$TLS_CHOICE" == "2" && "$TRUST_REGISTRY_IN_DOCKER" == "y" ]] && echo install || echo skip )"
 
   prompt_yesno PROCEED_WITH_PLAN "y" "Proceed with this plan?"
-  [[ "$PROCEED_WITH_PLAN" == "y" ]] || { warn "Bootstrap cancelled before applying changes."; exit 0; }
+  [[ "$PROCEED_WITH_PLAN" == "y" ]] || { RUN_STATUS="cancelled"; warn "Bootstrap cancelled before applying changes."; exit 0; }
 
+  CURRENT_STEP="k3s"
   install_k3s_if_needed "$K3S_ACTION"
+  CURRENT_STEP="helm"
   install_helm_if_needed "$HELM_ACTION"
   if service_active k3s; then
+    CURRENT_STEP="cluster-inspection"
     log "Inspecting k3s node..."
     kubectl_k3s get nodes -o wide
     ensure_user_kubeconfig
@@ -1475,25 +1693,36 @@ main() {
     warn "k3s is not active yet. Cluster-level checks will be partial until it is installed for real."
   fi
   if [[ "$RANCHER_ACTION" == "install" || "$REGISTRY_ACTION" == "install" ]]; then
+    CURRENT_STEP="cert_manager"
     ensure_cert_manager "$cert_manager_present" "$CERT_MANAGER_ACTION"
+    CURRENT_STEP="clusterissuer"
     ensure_issuer "$TLS_CHOICE" "$ISSUER_NAME" "$LE_EMAIL" "$LE_ENV"
   fi
+  CURRENT_STEP="longhorn"
   install_longhorn_if_needed "$longhorn_present" "$LONGHORN_ACTION" "$LONGHORN_DATA_PATH" "$LONGHORN_REPLICA_COUNT"
+  CURRENT_STEP="rancher"
   install_rancher_if_needed "$rancher_present" "$RANCHER_ACTION" "$TLS_CHOICE" "$ISSUER_NAME" "$RANCHER_HOST" "$ADMIN_PASS" "$LE_EMAIL" "$LE_ENV"
+  CURRENT_STEP="registry"
   install_registry_if_needed "$registry_present" "$REGISTRY_ACTION" "$TLS_CHOICE" "$ISSUER_NAME" "$REGISTRY_HOST" "$REGISTRY_SIZE" "$REGISTRY_STORAGE_CLASS" "$REGISTRY_AUTH_ENABLED" "$REGISTRY_AUTH_USER" "$REGISTRY_AUTH_PASSWORD"
   if [[ "$ENABLE_NFS" == "y" ]]; then
+    CURRENT_STEP="nfs"
     install_nfs_if_needed "$nfs_present" "$nfs_export_present" "$NFS_ACTION" "$NFS_EXPORT_PATH" "$NFS_ALLOWED_NETWORK"
   fi
   if [[ "$MANAGE_LOCAL_HOSTS" == "y" ]]; then
+    CURRENT_STEP="local_hosts"
     ensure_local_hosts_entries "$NODE_IP" "$RANCHER_HOST" "$REGISTRY_HOST"
   else
     track_skip "/etc/hosts: user chose not to manage local host entries"
+    manifest_complete_component "local_hosts" "skipped"
   fi
   if [[ "$TLS_CHOICE" == "2" && "$TRUST_REGISTRY_IN_DOCKER" == "y" ]]; then
+    CURRENT_STEP="docker_registry_trust"
     ensure_local_docker_registry_trust "$REGISTRY_HOST"
   elif [[ "$TLS_CHOICE" == "2" ]]; then
     track_skip "Docker trust: user chose not to install local registry certificate trust"
+    manifest_complete_component "docker_registry_trust" "skipped"
   fi
+  CURRENT_STEP="completed"
 
   log "DONE. Quick checks:"
   line "  k3s nodes:            sudo k3s kubectl get nodes"
@@ -1549,6 +1778,7 @@ main() {
     line "  NFS export:    $(hostname -I 2>/dev/null | awk '{print $1}'):${NFS_EXPORT_PATH}"
     line "  NFS clients:   ${NFS_ALLOWED_NETWORK}"
   fi
+  line "  Run manifest:  ${RUN_MANIFEST}"
   print_dry_run_summary
 }
 
