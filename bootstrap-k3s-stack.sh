@@ -39,7 +39,8 @@ mount_exists() { mountpoint -q "$1"; }
 prompt() {
   local var="$1" default="$2" msg="$3"
   local val
-  read -rp "$msg [$default]: " val
+  printf '%s [%s]: ' "$msg" "$default" >&2
+  IFS= read -r val
   val="${val:-$default}"
   printf -v "$var" '%s' "$val"
 }
@@ -48,7 +49,8 @@ prompt_yesno() {
   local var="$1" default="$2" msg="$3"
   local val
   local d="$default"
-  read -rp "$msg [$d] (y/n): " val
+  printf '%s [%s] (y/n): ' "$msg" "$d" >&2
+  IFS= read -r val
   val="${val:-$d}"
   case "$val" in
     y|Y) printf -v "$var" 'y' ;;
@@ -1316,21 +1318,21 @@ main() {
   local NFS_ACTION="skip"
 
   if service_active k3s; then
-    prompt_yesno CONTINUE_K3S "y" "Existing k3s installation detected. Continue using it without changes?"
+    prompt_yesno CONTINUE_K3S "y" "Existing k3s installation detected. Continue using it without changes? [required]"
     [[ "$CONTINUE_K3S" == "y" ]] || { err "k3s is required for the remaining steps."; exit 1; }
     K3S_ACTION="reuse"
   else
-    prompt_yesno INSTALL_K3S "y" "k3s was not detected. Install it now?"
+    prompt_yesno INSTALL_K3S "y" "k3s was not detected. Install it now? [required]"
     [[ "$INSTALL_K3S" == "y" ]] || { err "Cannot continue without k3s."; exit 1; }
     K3S_ACTION="install"
   fi
 
   if need_cmd helm; then
-    prompt_yesno CONTINUE_HELM "y" "Helm is already installed. Continue using it without changes?"
+    prompt_yesno CONTINUE_HELM "y" "Helm is already installed. Continue using it without changes? [required]"
     [[ "$CONTINUE_HELM" == "y" ]] || { err "Helm is required for chart-based installs."; exit 1; }
     HELM_ACTION="reuse"
   else
-    prompt_yesno INSTALL_HELM "y" "Helm was not detected. Install it now?"
+    prompt_yesno INSTALL_HELM "y" "Helm was not detected. Install it now? [required]"
     [[ "$INSTALL_HELM" == "y" ]] || { err "Cannot continue without Helm."; exit 1; }
     HELM_ACTION="install"
   fi
@@ -1338,36 +1340,36 @@ main() {
   if [[ "$cert_manager_present" == "y" ]]; then
     CERT_MANAGER_ACTION="reuse"
   elif [[ "$rancher_present" != "y" || "$registry_present" != "y" ]]; then
-    prompt_yesno INSTALL_CERT_MANAGER "y" "cert-manager is missing. Install it now?"
+    prompt_yesno INSTALL_CERT_MANAGER "y" "cert-manager is missing. Install it now? [required for TLS-dependent installs]"
     [[ "$INSTALL_CERT_MANAGER" == "y" ]] || { err "Skipping cert-manager would leave TLS-dependent installs unsupported."; exit 1; }
     CERT_MANAGER_ACTION="install"
   fi
 
   if [[ "$longhorn_present" == "y" ]]; then
-    prompt_yesno REUSE_LONGHORN "y" "Longhorn is already present. Leave it unchanged and continue?"
+    prompt_yesno REUSE_LONGHORN "y" "Longhorn is already present. Leave it unchanged and continue? [optional]"
     if [[ "$REUSE_LONGHORN" == "y" ]]; then LONGHORN_ACTION="reuse"; else LONGHORN_ACTION="skip"; fi
   else
-    prompt_yesno INSTALL_LONGHORN "y" "Longhorn is missing. Install it now?"
+    prompt_yesno INSTALL_LONGHORN "y" "Longhorn is missing. Install it now? [optional]"
     if [[ "$INSTALL_LONGHORN" == "y" ]]; then LONGHORN_ACTION="install"; else LONGHORN_ACTION="skip"; fi
   fi
 
   if [[ "$rancher_present" == "y" ]]; then
-    prompt_yesno REUSE_RANCHER "y" "Rancher is already present. Leave it unchanged and continue?"
+    prompt_yesno REUSE_RANCHER "y" "Rancher is already present. Leave it unchanged and continue? [optional]"
     if [[ "$REUSE_RANCHER" == "y" ]]; then RANCHER_ACTION="reuse"; else RANCHER_ACTION="skip"; fi
   else
-    prompt_yesno INSTALL_RANCHER "y" "Rancher is missing. Install it now?"
+    prompt_yesno INSTALL_RANCHER "y" "Rancher is missing. Install it now? [optional]"
     if [[ "$INSTALL_RANCHER" == "y" ]]; then RANCHER_ACTION="install"; else RANCHER_ACTION="skip"; fi
   fi
 
   if [[ "$registry_present" == "y" ]]; then
-    prompt_yesno REUSE_REGISTRY "y" "The in-cluster registry is already present. Leave it unchanged and continue?"
+    prompt_yesno REUSE_REGISTRY "y" "The in-cluster registry is already present. Leave it unchanged and continue? [optional]"
     if [[ "$REUSE_REGISTRY" == "y" ]]; then REGISTRY_ACTION="reuse"; else REGISTRY_ACTION="skip"; fi
   else
-    prompt_yesno INSTALL_REGISTRY "y" "The in-cluster registry is missing. Install it now?"
+    prompt_yesno INSTALL_REGISTRY "y" "The in-cluster registry is missing. Install it now? [optional]"
     if [[ "$INSTALL_REGISTRY" == "y" ]]; then REGISTRY_ACTION="install"; else REGISTRY_ACTION="skip"; fi
   fi
 
-  prompt_yesno ENABLE_NFS "y" "Do you want to ensure a local NFS server is available for host-to-cluster shared files?"
+  prompt_yesno ENABLE_NFS "y" "Do you want to ensure a local NFS server is available for host-to-cluster shared files? [optional]"
   if [[ "$ENABLE_NFS" == "y" ]]; then
     if nfs_export_exists "$NFS_EXPORT_PATH"; then
       nfs_export_present="y"
@@ -1406,7 +1408,7 @@ main() {
     track_skip "NFS: user chose not to manage NFS"
   fi
 
-  prompt_yesno MANAGE_LOCAL_HOSTS "y" "Do you want this script to add/update local /etc/hosts entries for Rancher and Registry on this machine?"
+  prompt_yesno MANAGE_LOCAL_HOSTS "y" "Do you want this script to add/update local /etc/hosts entries for Rancher and Registry on this machine? [optional]"
 
   if [[ "$RANCHER_ACTION" == "install" || "$REGISTRY_ACTION" == "install" ]]; then
     prompt DOMAIN "$DOMAIN" "Base domain (used to build hostnames)"
@@ -1446,7 +1448,7 @@ main() {
   fi
 
   if [[ "$TLS_CHOICE" == "2" ]]; then
-    prompt_yesno TRUST_REGISTRY_IN_DOCKER "y" "Do you want this script to trust the registry certificate in local Docker on this machine?"
+    prompt_yesno TRUST_REGISTRY_IN_DOCKER "y" "Do you want this script to trust the registry certificate in local Docker on this machine? [optional]"
   fi
 
   print_plan_summary \

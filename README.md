@@ -24,6 +24,26 @@ Installs or reuses existing components and optionally applies local host changes
 - `/etc/hosts` entries
 - local Docker trust for the registry certificate
 
+Bootstrap flow:
+
+1. Detect the current environment
+2. Show a diagnosis of what is present or missing
+3. Ask high-level `required` and `optional` decisions
+4. Show a plan before applying changes
+5. Apply or simulate the selected changes
+
+Prompt labels:
+
+- `[required]`: answering `n` stops the bootstrap because the remaining flow would not make sense
+- `[optional]`: answering `n` skips that component or host integration and continues
+- `[required for TLS-dependent installs]`: applies to `cert-manager` when Rancher or the registry need managed TLS
+
+Longhorn safety note:
+
+- the bootstrap can create the Longhorn data directory if needed
+- it does **not** format or mount disks
+- if you want dedicated storage for Longhorn, prepare and mount it before running the bootstrap
+
 Usage:
 
 ```bash
@@ -146,6 +166,7 @@ Custom output directory:
 ## Operational Notes
 
 - If you use `self-signed` TLS, it is useful to let the bootstrap update `/etc/hosts` and install local Docker trust for the registry certificate.
+- In `--dry-run`, the script still inspects the current cluster and host state, but it does not apply changes.
 - If you want registry auth, enable it during registry installation. The validator supports both modes:
   - anonymous
   - authenticated with `REGISTRY_USER` and `REGISTRY_PASSWORD`
