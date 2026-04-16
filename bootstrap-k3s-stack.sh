@@ -340,7 +340,7 @@ ensure_rancher_private_ca_secret() {
 
   if [[ "$DRY_RUN" == "1" ]]; then
     log "[dry-run] Creating Rancher CA secret ${source_secret_ns}/${target_secret_name} from ${source_secret_name}"
-    echo "  kubectl create secret generic ${target_secret_name} --from-literal=cacerts.pem=<ca.crt from ${source_secret_name}>"
+    echo "  sudo k3s kubectl create secret generic ${target_secret_name} --from-literal=cacerts.pem=<ca.crt from ${source_secret_name}>"
     return 0
   fi
 
@@ -407,7 +407,7 @@ ensure_local_docker_registry_trust() {
     track_install "Docker registry trust for ${registry_host}"
     log "[dry-run] Installing Docker trust for ${registry_host}"
     line "  sudo mkdir -p ${cert_dir}"
-    line "  kubectl get secret registry-tls -n registry -o jsonpath='{.data.tls\\.crt}' | base64 -d | sudo tee ${cert_file}"
+    line "  sudo k3s kubectl get secret registry-tls -n registry -o jsonpath='{.data.tls\\.crt}' | base64 -d | sudo tee ${cert_file}"
     line "  sudo systemctl restart docker"
     manifest_complete_component "docker_registry_trust" "dry-run" "$registry_host"
     return
@@ -1448,6 +1448,11 @@ main() {
     "$( [[ "$rancher_present" == "y" ]] && echo present || echo missing )" \
     "$( [[ "$registry_present" == "y" ]] && echo present || echo missing )" \
     "$( [[ "$nfs_present" == "y" ]] && echo present || echo missing )"
+  if need_cmd kubectl; then
+    log "Standalone kubectl detected. The managed workflow in this repository still uses 'sudo k3s kubectl' by default."
+  else
+    log "Standalone kubectl was not detected. That is fine: this repository uses 'sudo k3s kubectl' for managed operations."
+  fi
   print_diagnosis_summary \
     "$(service_active k3s && echo present || echo missing)" \
     "$(need_cmd helm && echo present || echo missing)" \

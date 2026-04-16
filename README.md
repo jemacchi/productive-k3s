@@ -8,6 +8,13 @@ Bootstrap and validation for a local `k3s` stack with:
 - internal registry
 - host NFS export
 
+Recommended CLI usage:
+
+- the scripts are designed to work with `sudo k3s kubectl`
+- a standalone `kubectl` binary in your `PATH` is not required for the managed workflow in this repository
+- if you want a normal-user workflow for ad hoc commands, keep a valid `kubeconfig` in `~/.kube/config`
+- the bootstrap logs this explicitly so users can tell whether `kubectl` was detected and whether that matters
+
 ## Scripts
 
 ### `bootstrap-k3s-stack.sh`
@@ -127,7 +134,7 @@ Exports useful stack resources and configuration into a timestamped directory.
 
 Includes:
 
-- `kubectl get all -A`
+- `sudo k3s kubectl get all -A`
 - `ingress`, `cm`, `secret`, `pvc`, `pv`, `sc`, `certificates`, `issuers`, `clusterissuers`
 - manifests for relevant namespaces
 - `k3s.yaml`
@@ -148,6 +155,41 @@ Custom output directory:
 ```bash
 ./backup-k3s-stack.sh /tmp/my-k3s-backup
 ```
+
+### `rollback-k3s-stack.sh`
+
+Builds a rollback plan from a bootstrap run manifest and can apply the safe subset of that rollback.
+
+Usage:
+
+```bash
+./rollback-k3s-stack.sh --to runs/bootstrap-...json --plan
+./rollback-k3s-stack.sh --to runs/bootstrap-...json --apply
+```
+
+Notes:
+
+- intended for manifest-guided rollback of what a specific bootstrap run introduced
+- does not treat reused components as rollback targets
+- leaves high-impact host actions such as removing `k3s` or `helm` as manual review in this first implementation
+
+### `clean-k3s-stack.sh`
+
+Fully destructive local cleanup helper for tearing down the stack.
+
+Usage:
+
+```bash
+./clean-k3s-stack.sh --plan
+./clean-k3s-stack.sh --apply
+```
+
+Notes:
+
+- this is not manifest-guided rollback
+- this is a broad cleanup tool intended to remove the local stack completely
+- it prints a strong warning and requires explicit confirmation before applying
+- it removes cluster resources and local integrations, but does not delete arbitrary user files inside Longhorn or NFS data directories
 
 ## Recommended Flow
 
@@ -175,6 +217,12 @@ Custom output directory:
 ./backup-k3s-stack.sh
 ```
 
+5. If needed, review a rollback plan for a specific bootstrap run:
+
+```bash
+./rollback-k3s-stack.sh --to runs/bootstrap-...json --plan
+```
+
 ## Operational Notes
 
 - If you use `self-signed` TLS, it is useful to let the bootstrap update `/etc/hosts` and install local Docker trust for the registry certificate.
@@ -182,4 +230,5 @@ Custom output directory:
 - If you want registry auth, enable it during registry installation. The validator supports both modes:
   - anonymous
   - authenticated with `REGISTRY_USER` and `REGISTRY_PASSWORD`
-- To use `kubectl` and `helm` as a normal user, keep a valid `kubeconfig` in `~/.kube/config`.
+- The managed path in this repository is `sudo k3s kubectl ...`. Use that unless you explicitly want a separate normal-user `kubectl` workflow.
+- If you do want `kubectl` and `helm` as a normal user, keep a valid `kubeconfig` in `~/.kube/config`.
