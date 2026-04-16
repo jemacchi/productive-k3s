@@ -39,12 +39,7 @@ mount_exists() { mountpoint -q "$1"; }
 prompt() {
   local var="$1" default="$2" msg="$3"
   local val
-  if [[ -r /dev/tty ]]; then
-    printf '%s [%s]: ' "$msg" "$default" > /dev/tty
-    IFS= read -r val < /dev/tty
-  else
-    read -rp "$msg [$default]: " val
-  fi
+  read -rp "$msg [$default]: " val
   val="${val:-$default}"
   printf -v "$var" '%s' "$val"
 }
@@ -53,12 +48,7 @@ prompt_yesno() {
   local var="$1" default="$2" msg="$3"
   local val
   local d="$default"
-  if [[ -r /dev/tty ]]; then
-    printf '%s [%s] (y/n): ' "$msg" "$d" > /dev/tty
-    IFS= read -r val < /dev/tty
-  else
-    read -rp "$msg [$d] (y/n): " val
-  fi
+  read -rp "$msg [$d] (y/n): " val
   val="${val:-$d}"
   case "$val" in
     y|Y) printf -v "$var" 'y' ;;
@@ -67,12 +57,18 @@ prompt_yesno() {
   esac
 }
 
+bind_stdin_to_tty() {
+  if [[ -r /dev/tty ]]; then
+    exec </dev/tty
+  fi
+}
+
 sudo_keepalive() {
   if ! sudo -n true 2>/dev/null; then
     log "Requesting sudo..."
     sudo -v
   fi
-  ( while true; do sudo -n true; sleep 30; done ) >/dev/null 2>&1 &
+  ( while true; do sudo -n true; sleep 30; done ) </dev/null >/dev/null 2>&1 &
   SUDO_KA_PID=$!
   trap 'kill ${SUDO_KA_PID:-0} >/dev/null 2>&1 || true' EXIT
 }
@@ -236,8 +232,9 @@ ensure_local_hosts_entries() {
   local cmd="tmp=\$(mktemp); grep -vE '(^|[[:space:]])(${hosts_regex})([[:space:]]|$)' /etc/hosts > \"\$tmp\" || true; printf '%s\\n' '${host_line}' >> \"\$tmp\"; cat \"\$tmp\" > /etc/hosts; rm -f \"\$tmp\""
 
   if [[ "$DRY_RUN" == "1" ]]; then
+    track_install "local /etc/hosts entries"
     log "[dry-run] Adding/updating local /etc/hosts entries"
-    echo "  ${host_line}"
+    line "  ${host_line}"
     return
   fi
 
@@ -266,10 +263,11 @@ ensure_local_docker_registry_trust() {
   local cert_file="${cert_dir}/ca.crt"
 
   if [[ "$DRY_RUN" == "1" ]]; then
+    track_install "Docker registry trust for ${registry_host}"
     log "[dry-run] Installing Docker trust for ${registry_host}"
-    echo "  sudo mkdir -p ${cert_dir}"
-    echo "  kubectl get secret registry-tls -n registry -o jsonpath='{.data.tls\\.crt}' | base64 -d | sudo tee ${cert_file}"
-    echo "  sudo systemctl restart docker"
+    line "  sudo mkdir -p ${cert_dir}"
+    line "  kubectl get secret registry-tls -n registry -o jsonpath='{.data.tls\\.crt}' | base64 -d | sudo tee ${cert_file}"
+    line "  sudo systemctl restart docker"
     return
   fi
 
@@ -353,35 +351,34 @@ track_warning() {
 print_dry_run_summary() {
   [[ "$DRY_RUN" == "1" ]] || return 0
 
-  echo
   log "Dry-run summary"
 
-  echo "  Reuse existing:"
+  line "  Reuse existing:"
   if (( ${#DRY_RUN_REUSE[@]} == 0 )); then
-    echo "    - none"
+    line "    - none"
   else
-    printf '    - %s\n' "${DRY_RUN_REUSE[@]}"
+    printf '    - %s\r\n' "${DRY_RUN_REUSE[@]}"
   fi
 
-  echo "  Would install/configure:"
+  line "  Would install/configure:"
   if (( ${#DRY_RUN_INSTALL[@]} == 0 )); then
-    echo "    - none"
+    line "    - none"
   else
-    printf '    - %s\n' "${DRY_RUN_INSTALL[@]}"
+    printf '    - %s\r\n' "${DRY_RUN_INSTALL[@]}"
   fi
 
-  echo "  Skipped by choice/preflight:"
+  line "  Skipped by choice/preflight:"
   if (( ${#DRY_RUN_SKIP[@]} == 0 )); then
-    echo "    - none"
+    line "    - none"
   else
-    printf '    - %s\n' "${DRY_RUN_SKIP[@]}"
+    printf '    - %s\r\n' "${DRY_RUN_SKIP[@]}"
   fi
 
-  echo "  Warnings:"
+  line "  Warnings:"
   if (( ${#DRY_RUN_WARNINGS[@]} == 0 )); then
-    echo "    - none"
+    line "    - none"
   else
-    printf '    - %s\n' "${DRY_RUN_WARNINGS[@]}"
+    printf '    - %s\r\n' "${DRY_RUN_WARNINGS[@]}"
   fi
 }
 
@@ -1234,6 +1231,7 @@ install_nfs_if_needed() {
 
 main() {
   parse_args "$@"
+  bind_stdin_to_tty
   sudo_keepalive
 
   log "Incremental bootstrap: k3s + Rancher + Longhorn + Registry (Ubuntu)"
@@ -1371,17 +1369,38 @@ main() {
 
   prompt_yesno ENABLE_NFS "y" "Do you want to ensure a local NFS server is available for host-to-cluster shared files?"
   if [[ "$ENABLE_NFS" == "y" ]]; then
-    prompt NFS_EXPORT_PATH "$NFS_EXPORT_PATH" "NFS export path on the host"
-    prompt NFS_ALLOWED_NETWORK "$NFS_ALLOWED_NETWORK" "Allowed client network/CIDR for the NFS export"
     if nfs_export_exists "$NFS_EXPORT_PATH"; then
       nfs_export_present="y"
     fi
+
     if [[ "$nfs_present" == "y" && "$nfs_export_present" == "y" ]]; then
-      NFS_ACTION="reuse"
-    elif [[ "$nfs_present" == "y" ]]; then
-      NFS_ACTION="add-export"
+      prompt_yesno REUSE_EXISTING_NFS "y" "NFS server and export are already present. Leave them unchanged and continue?"
+      if [[ "$REUSE_EXISTING_NFS" == "y" ]]; then
+        NFS_ACTION="reuse"
+      else
+        prompt NFS_EXPORT_PATH "$NFS_EXPORT_PATH" "NFS export path on the host"
+        prompt NFS_ALLOWED_NETWORK "$NFS_ALLOWED_NETWORK" "Allowed client network/CIDR for the NFS export"
+        if nfs_export_exists "$NFS_EXPORT_PATH"; then
+          nfs_export_present="y"
+          NFS_ACTION="reuse"
+        else
+          nfs_export_present="n"
+          NFS_ACTION="add-export"
+        fi
+      fi
     else
-      NFS_ACTION="install"
+      prompt NFS_EXPORT_PATH "$NFS_EXPORT_PATH" "NFS export path on the host"
+      prompt NFS_ALLOWED_NETWORK "$NFS_ALLOWED_NETWORK" "Allowed client network/CIDR for the NFS export"
+      if nfs_export_exists "$NFS_EXPORT_PATH"; then
+        nfs_export_present="y"
+      fi
+      if [[ "$nfs_present" == "y" && "$nfs_export_present" == "y" ]]; then
+        NFS_ACTION="reuse"
+      elif [[ "$nfs_present" == "y" ]]; then
+        NFS_ACTION="add-export"
+      else
+        NFS_ACTION="install"
+      fi
     fi
   else
     track_skip "NFS: user chose not to manage NFS"
@@ -1447,7 +1466,7 @@ main() {
   install_k3s_if_needed "$K3S_ACTION"
   install_helm_if_needed "$HELM_ACTION"
   if service_active k3s; then
-    log "Checking k3s node..."
+    log "Inspecting k3s node..."
     kubectl_k3s get nodes -o wide
     ensure_user_kubeconfig
   else
@@ -1488,7 +1507,11 @@ main() {
   line "    ${RANCHER_HOST}"
   line "    ${REGISTRY_HOST}"
   if [[ "$MANAGE_LOCAL_HOSTS" == "y" ]]; then
-    line "  Local /etc/hosts entries were updated on this machine:"
+    if [[ "$DRY_RUN" == "1" ]]; then
+      line "  Local /etc/hosts entries would be updated on this machine:"
+    else
+      line "  Local /etc/hosts entries were updated on this machine:"
+    fi
     line "    ${NODE_IP} ${RANCHER_HOST} ${REGISTRY_HOST}"
   else
     line "  For local testing on the VM itself, you can add to /etc/hosts:"
@@ -1500,7 +1523,11 @@ main() {
     warn "Self-signed TLS:"
     line "  - Your browser and Docker clients may not trust the cert by default."
     if [[ "$TRUST_REGISTRY_IN_DOCKER" == "y" ]]; then
-      line "  - Local Docker trust was installed for ${REGISTRY_HOST} on this machine."
+      if [[ "$DRY_RUN" == "1" ]]; then
+        line "  - Local Docker trust would be installed for ${REGISTRY_HOST} on this machine."
+      else
+        line "  - Local Docker trust was installed for ${REGISTRY_HOST} on this machine."
+      fi
     else
       line "  - To use the registry with docker push/pull from a machine, you typically need to trust the CA/cert."
     fi
