@@ -106,6 +106,7 @@ Checks:
 Validation behavior for optional components:
 
 - if optional components such as Longhorn, Rancher, Registry, or cert-manager are not installed, the validator skips their component-specific checks instead of treating their absence as a failure
+- the validator focuses on active pods and workload readiness; historical terminal pods such as `Completed`, `Evicted`, or old `Error` objects are reported as ignored context instead of immediate failures
 
 Usage:
 

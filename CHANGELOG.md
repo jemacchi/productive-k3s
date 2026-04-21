@@ -36,6 +36,7 @@
 - Longhorn bootstrap no longer formats or mounts disks.
 - Standalone `kubectl` is treated as optional; the managed workflow uses `sudo k3s kubectl`.
 - Validator now treats absent optional components as skip conditions instead of implicit failures.
+- Validator now focuses on active pods plus Deployment/StatefulSet/DaemonSet readiness, while treating historical terminal pods as informational context instead of hard failures.
 - VM-based tests now wait for validation to converge instead of assuming immediate readiness.
 
 ### Fixed

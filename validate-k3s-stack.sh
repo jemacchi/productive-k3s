@@ -128,6 +128,73 @@ safe_run() {
   printf '%s' "$output"
 }
 
+active_pod_table() {
+  k get pods "$@" --field-selector=status.phase!=Succeeded,status.phase!=Failed -o wide
+}
+
+count_terminal_pods() {
+  local count status_col=3
+  if [[ " $* " == *" -A "* ]]; then
+    status_col=4
+  fi
+  count="$(k get pods "$@" --no-headers 2>/dev/null | awk -v status_col="$status_col" '
+    {
+      status=$status_col
+      if (status == "Completed" || status == "Error" || status == "Evicted" || status == "ContainerStatusUnknown") count++
+    }
+    END {print count+0}
+  ')"
+  printf '%s' "$count"
+}
+
+check_namespace_workloads() {
+  local ns="$1"
+  local label="$2"
+  local deployments statefulsets daemonsets bad=""
+
+  if deployments="$(safe_run k get deploy -n "$ns" --no-headers 2>/dev/null)"; then
+    local deploy_bad
+    deploy_bad="$(printf '%s\n' "$deployments" | awk '
+      NF == 0 {next}
+      /^No resources found/ {next}
+      {
+        split($2, ready, "/")
+        if (ready[1] != ready[2]) print "deployment/" $1 " " $2
+      }
+    ')"
+    [[ -n "$deploy_bad" ]] && bad+="${deploy_bad}"$'\n'
+  fi
+
+  if statefulsets="$(safe_run k get statefulset -n "$ns" --no-headers 2>/dev/null)"; then
+    local sts_bad
+    sts_bad="$(printf '%s\n' "$statefulsets" | awk '
+      NF == 0 {next}
+      /^No resources found/ {next}
+      {
+        split($2, ready, "/")
+        if (ready[1] != ready[2]) print "statefulset/" $1 " " $2
+      }
+    ')"
+    [[ -n "$sts_bad" ]] && bad+="${sts_bad}"$'\n'
+  fi
+
+  if daemonsets="$(safe_run k get daemonset -n "$ns" --no-headers 2>/dev/null)"; then
+    local ds_bad
+    ds_bad="$(printf '%s\n' "$daemonsets" | awk '
+      NF == 0 {next}
+      /^No resources found/ {next}
+      {
+        desired=$2
+        ready=$4
+        if (ready != desired) print "daemonset/" $1 " ready=" ready "/" desired
+      }
+    ')"
+    [[ -n "$ds_bad" ]] && bad+="${ds_bad}"$'\n'
+  fi
+
+  printf '%s' "$bad"
+}
+
 check_cmds() {
   info "Checking required commands"
   local missing=()
@@ -186,8 +253,8 @@ check_nodes() {
 
 check_all_pods() {
   info "Checking all pods"
-  local pods bad
-  if ! pods="$(safe_run k get pods -A -o wide)"; then
+  local pods bad historical_failed
+  if ! pods="$(safe_run active_pod_table -A)"; then
     record_fail "unable to list pods"
     return
   fi
@@ -204,10 +271,15 @@ check_all_pods() {
   ')"
 
   if [[ -n "$bad" ]]; then
-    record_fail "there are pods not healthy enough"
+    record_fail "there are active pods not healthy enough"
     printf '%s\n' "$bad"
   else
-    record_ok "all pods are Running or Completed"
+    record_ok "all active pods are Running and Ready"
+  fi
+
+  historical_failed="$(count_terminal_pods -A)"
+  if [[ "$historical_failed" != "0" ]]; then
+    info "Ignoring ${historical_failed} historical terminal pod(s) with statuses like Completed, Error, Evicted, or ContainerStatusUnknown"
   fi
 }
 
@@ -258,7 +330,7 @@ check_namespace_rollup() {
   fi
 
   local pods
-  if ! pods="$(safe_run k get pods -n "$ns" -o wide)"; then
+  if ! pods="$(safe_run active_pod_table -n "$ns")"; then
     record_fail "unable to query pods in namespace '${ns}'"
     return
   fi
@@ -275,11 +347,23 @@ check_namespace_rollup() {
     }
   ')"
 
+  local workload_bad
+  workload_bad="$(check_namespace_workloads "$ns" "$label")"
+
   if [[ -n "$bad" ]]; then
     record_fail "${label} has unhealthy pods"
     printf '%s\n' "$bad"
+  elif [[ -n "$workload_bad" ]]; then
+    record_fail "${label} has workloads that are not fully ready"
+    printf '%s\n' "$workload_bad"
   else
-    record_ok "${label} pods are healthy"
+    record_ok "${label} active pods and workloads are healthy"
+  fi
+
+  local historical_terminal
+  historical_terminal="$(count_terminal_pods -n "$ns")"
+  if [[ "$historical_terminal" != "0" ]]; then
+    info "Ignoring ${historical_terminal} historical terminal pod(s) in namespace '${ns}'"
   fi
 }
 
