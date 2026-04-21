@@ -67,6 +67,26 @@ cleanup_exit() {
 
 need_cmd() { command -v "$1" >/dev/null 2>&1; }
 
+resolve_kubeconfig() {
+  local candidate
+  for candidate in "${HOME}/.kube/k3s.yaml" "${HOME}/.kube/config" "/etc/rancher/k3s/k3s.yaml"; do
+    if [[ -r "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+delete_named_resources_matching() {
+  local resource="$1" pattern="$2"
+  kubectl_k3s get "$resource" -o name 2>/dev/null | grep -E "$pattern" | while read -r name; do
+    [[ -n "$name" ]] || continue
+    log "Deleting ${name}"
+    kubectl_k3s delete "$name" --ignore-not-found --wait=false || true
+  done
+}
+
 usage() {
   cat <<'EOF'
 Usage:
@@ -232,20 +252,20 @@ build_plan() {
 
   local detected planned result now
 
-  detected="$(component_field cert_manager detected_before)"
-  planned="$(component_field cert_manager planned_action)"
-  result="$(component_field cert_manager result)"
-  now="$(current_state cert_manager)"
-  if [[ "$detected" == "missing" && "$planned" == "install" && "$result" == "installed" && "$now" == "present" ]]; then
-    add_plan_item "cert_manager" "Delete cert-manager resources that were installed by the bootstrap run" "safe" "kubectl_delete_cert_manager"
-  fi
-
   detected="$(component_field clusterissuer detected_before)"
   planned="$(component_field clusterissuer planned_action)"
   result="$(component_field clusterissuer result)"
   now="$(current_state clusterissuer)"
   if [[ "$detected" == "missing" && "$planned" == "ensure" && "$result" == "installed" && "$now" == "present" ]]; then
     add_plan_item "clusterissuer" "Delete ClusterIssuer '$(component_field clusterissuer note)'" "safe" "kubectl_delete_clusterissuer"
+  fi
+
+  detected="$(component_field cert_manager detected_before)"
+  planned="$(component_field cert_manager planned_action)"
+  result="$(component_field cert_manager result)"
+  now="$(current_state cert_manager)"
+  if [[ "$detected" == "missing" && "$planned" == "install" && "$result" == "installed" && "$now" == "present" ]]; then
+    add_plan_item "cert_manager" "Delete cert-manager resources that were installed by the bootstrap run" "safe" "kubectl_delete_cert_manager"
   fi
 
   detected="$(component_field longhorn detected_before)"
@@ -261,7 +281,7 @@ build_plan() {
   result="$(component_field rancher result)"
   now="$(current_state rancher)"
   if [[ "$detected" == "missing" && "$planned" == "install" && "$result" == "installed" && "$now" == "present" ]]; then
-    add_plan_item "rancher" "Uninstall Rancher release and cattle-system resources" "moderate" "helm_uninstall_rancher"
+    add_plan_item "rancher" "Uninstall Rancher release and cattle-system/Fleet/Turtles resources" "moderate" "helm_uninstall_rancher"
   fi
 
   detected="$(component_field registry detected_before)"
@@ -332,7 +352,7 @@ print_plan() {
 
 apply_kubectl_delete_cert_manager() {
   sudo k3s kubectl delete -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml || true
-  sudo k3s kubectl delete namespace cert-manager --ignore-not-found || true
+  sudo k3s kubectl delete namespace cert-manager --ignore-not-found --wait=false || true
 }
 
 apply_kubectl_delete_clusterissuer() {
@@ -342,18 +362,39 @@ apply_kubectl_delete_clusterissuer() {
   sudo k3s kubectl delete clusterissuer "$issuer" --ignore-not-found
 }
 
+delete_rancher_cluster_artifacts() {
+  delete_named_resources_matching validatingwebhookconfigurations 'rancher|fleet|cattle'
+  delete_named_resources_matching mutatingwebhookconfigurations 'rancher|fleet|cattle'
+  delete_named_resources_matching apiservices 'cattle|fleet'
+  delete_named_resources_matching crd 'cattle\.io|fleet\.cattle\.io'
+}
+
+delete_longhorn_cluster_artifacts() {
+  delete_named_resources_matching validatingwebhookconfigurations 'longhorn'
+  delete_named_resources_matching mutatingwebhookconfigurations 'longhorn'
+  kubectl_k3s delete storageclass longhorn longhorn-static --ignore-not-found || true
+  kubectl_k3s delete csidriver driver.longhorn.io --ignore-not-found || true
+  delete_named_resources_matching crd 'longhorn\.io'
+}
+
 apply_helm_uninstall_longhorn() {
   helm uninstall longhorn -n longhorn-system || true
-  sudo k3s kubectl delete namespace longhorn-system --ignore-not-found || true
+  sudo k3s kubectl delete namespace longhorn-system --ignore-not-found --wait=false || true
+  delete_longhorn_cluster_artifacts
 }
 
 apply_helm_uninstall_rancher() {
   helm uninstall rancher -n cattle-system || true
-  sudo k3s kubectl delete namespace cattle-system --ignore-not-found || true
+  delete_rancher_cluster_artifacts
+  sudo k3s kubectl delete namespace cattle-turtles-system --ignore-not-found --wait=false || true
+  sudo k3s kubectl delete namespace cattle-capi-system --ignore-not-found --wait=false || true
+  sudo k3s kubectl delete namespace cattle-fleet-local-system --ignore-not-found --wait=false || true
+  sudo k3s kubectl delete namespace cattle-fleet-system --ignore-not-found --wait=false || true
+  sudo k3s kubectl delete namespace cattle-system --ignore-not-found --wait=false || true
 }
 
 apply_kubectl_delete_registry() {
-  sudo k3s kubectl delete namespace registry --ignore-not-found || true
+  sudo k3s kubectl delete namespace registry --ignore-not-found --wait=false || true
 }
 
 apply_remove_nfs_export() {
@@ -400,7 +441,13 @@ apply_plan() {
 
   bind_stdin_to_tty
   sudo_keepalive
-  export KUBECONFIG="${HOME}/.kube/config"
+
+  local kubeconfig
+  kubeconfig="$(resolve_kubeconfig)" || {
+    err "Could not find a readable kubeconfig for helm-based rollback actions."
+    exit 1
+  }
+  export KUBECONFIG="$kubeconfig"
 
   local id
   for id in "${PLAN_IDS[@]}"; do

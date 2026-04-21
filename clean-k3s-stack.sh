@@ -91,8 +91,10 @@ Modes:
 
 What it removes:
   - k3s cluster components and local k3s state
-  - bootstrap-managed namespaces: cert-manager, longhorn-system, cattle-system, registry
+  - bootstrap-managed namespaces: cert-manager, longhorn-system, cattle-system, cattle-fleet-system, cattle-fleet-local-system, cattle-capi-system, cattle-turtles-system, registry
   - common bootstrap ClusterIssuers: selfsigned, letsencrypt-staging, letsencrypt-production
+  - Rancher/Fleet/Turtles webhook configurations and cattle-related CRDs/APIService objects when present
+  - Longhorn CRDs, StorageClasses, and CSIDriver objects when present
   - local /etc/hosts entries for rancher.home.arpa and registry.home.arpa
   - local Docker trust for registry.home.arpa
   - NFS export line for /srv/nfs/k8s-share
@@ -131,6 +133,36 @@ kubectl_k3s() { sudo k3s kubectl "$@"; }
 namespace_exists() { kubectl_k3s get namespace "$1" >/dev/null 2>&1; }
 clusterissuer_exists() { kubectl_k3s get clusterissuer "$1" >/dev/null 2>&1; }
 
+delete_named_resources_matching() {
+  local resource="$1" pattern="$2"
+  kubectl_k3s get "$resource" -o name 2>/dev/null | grep -E "$pattern" | while read -r name; do
+    [[ -n "$name" ]] || continue
+    log "Deleting ${name}"
+    kubectl_k3s delete "$name" --ignore-not-found --wait=false || true
+  done
+}
+
+delete_rancher_cluster_artifacts() {
+  if ! service_active k3s; then
+    return
+  fi
+  delete_named_resources_matching validatingwebhookconfigurations 'rancher|fleet|cattle'
+  delete_named_resources_matching mutatingwebhookconfigurations 'rancher|fleet|cattle'
+  delete_named_resources_matching apiservices 'cattle|fleet'
+  delete_named_resources_matching crd 'cattle\.io|fleet\.cattle\.io'
+}
+
+delete_longhorn_cluster_artifacts() {
+  if ! service_active k3s; then
+    return
+  fi
+  delete_named_resources_matching validatingwebhookconfigurations 'longhorn'
+  delete_named_resources_matching mutatingwebhookconfigurations 'longhorn'
+  kubectl_k3s delete storageclass longhorn longhorn-static --ignore-not-found || true
+  kubectl_k3s delete csidriver driver.longhorn.io --ignore-not-found || true
+  delete_named_resources_matching crd 'longhorn\.io'
+}
+
 add_plan_item() {
   PLAN_ITEMS+=("$1")
 }
@@ -139,7 +171,7 @@ build_plan() {
   add_plan_item "Uninstall k3s and remove local k3s state directories if present"
 
   local ns
-  for ns in cert-manager longhorn-system cattle-system registry; do
+  for ns in cert-manager longhorn-system cattle-system cattle-fleet-system cattle-fleet-local-system cattle-capi-system cattle-turtles-system registry; do
     add_plan_item "Delete namespace '${ns}' if present"
   done
 
@@ -148,6 +180,9 @@ build_plan() {
     add_plan_item "Delete ClusterIssuer '${issuer}' if present"
   done
 
+  add_plan_item "Delete Rancher/Fleet/Turtles webhook configurations if present"
+  add_plan_item "Delete cattle/fleet-related APIService and CRD objects if present"
+  add_plan_item "Delete Longhorn StorageClasses, CSIDriver, and CRDs if present"
   add_plan_item "Remove /etc/hosts entries containing '${DEFAULT_RANCHER_HOST}' or '${DEFAULT_REGISTRY_HOST}'"
   add_plan_item "Remove Docker trust directory '/etc/docker/certs.d/${DEFAULT_REGISTRY_HOST}' if present"
   add_plan_item "Remove NFS export '${DEFAULT_NFS_EXPORT}' from /etc/exports and reload exports if present"
@@ -197,9 +232,10 @@ delete_cluster_issuers() {
 
 delete_namespaces() {
   local ns
-  for ns in registry cattle-system longhorn-system cert-manager; do
+  for ns in registry cattle-turtles-system cattle-capi-system cattle-fleet-local-system cattle-fleet-system cattle-system longhorn-system cert-manager; do
     if service_active k3s && namespace_exists "$ns"; then
-      sudo k3s kubectl delete namespace "$ns" --ignore-not-found || true
+      log "Requesting deletion of namespace '${ns}'"
+      sudo k3s kubectl delete namespace "$ns" --ignore-not-found --wait=false || true
     fi
   done
 }
@@ -234,7 +270,9 @@ apply_cleanup() {
 
   log "Deleting cluster-level resources"
   delete_cluster_issuers
+  delete_rancher_cluster_artifacts
   delete_namespaces
+  delete_longhorn_cluster_artifacts
 
   log "Removing local host integrations"
   remove_hosts_entries

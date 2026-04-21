@@ -285,6 +285,15 @@ check_namespace_rollup() {
 
 check_cert_manager() {
   info "Checking cert-manager"
+  if ! k get namespace cert-manager >/dev/null 2>&1; then
+    if k get namespace cattle-system >/dev/null 2>&1 || k get namespace registry >/dev/null 2>&1; then
+      record_warn "cert-manager namespace does not exist even though TLS-dependent components are present"
+    else
+      info "cert-manager is not installed; skipping cert-manager-specific checks"
+    fi
+    return
+  fi
+
   check_namespace_rollup "cert-manager" "cert-manager"
 
   local issuers
@@ -314,7 +323,7 @@ check_cert_manager() {
 check_longhorn() {
   info "Checking Longhorn"
   if ! k get namespace longhorn-system >/dev/null 2>&1; then
-    record_warn "Longhorn namespace does not exist"
+    info "Longhorn is not installed; skipping Longhorn-specific checks"
     return
   fi
 
@@ -325,7 +334,7 @@ check_longhorn() {
     if printf '%s\n' "$volumes" | awk 'NR>1 {print}' | grep -q .; then
       record_ok "Longhorn volumes API is responding"
     else
-      record_warn "no Longhorn volumes found yet"
+      record_ok "Longhorn is installed but no volumes exist yet"
     fi
   fi
 }
@@ -333,7 +342,7 @@ check_longhorn() {
 check_rancher() {
   info "Checking Rancher"
   if ! k get namespace cattle-system >/dev/null 2>&1; then
-    record_warn "Rancher namespace does not exist"
+    info "Rancher is not installed; skipping Rancher-specific checks"
     return
   fi
 
@@ -355,7 +364,7 @@ check_rancher() {
 check_registry() {
   info "Checking in-cluster registry"
   if ! k get namespace registry >/dev/null 2>&1; then
-    record_warn "registry namespace does not exist"
+    info "Registry is not installed; skipping registry-specific checks"
     return
   fi
 
@@ -382,31 +391,46 @@ check_registry() {
 
 check_dns_and_http() {
   info "Checking local DNS and HTTPS access"
-  local hosts=("rancher.home.arpa" "registry.home.arpa")
-  local host
-
-  for host in "${hosts[@]}"; do
-    if getent hosts "$host" >/dev/null 2>&1; then
-      record_ok "${host} resolves locally"
-    else
-      record_warn "${host} does not resolve locally"
-    fi
-  done
-
-  local rancher_code registry_code
-  rancher_code="$(curl -k -s -o /dev/null -w '%{http_code}' --max-time 10 https://rancher.home.arpa || true)"
-  registry_code="$(curl -k -s -o /dev/null -w '%{http_code}' --max-time 10 https://registry.home.arpa/v2/ || true)"
-
-  if [[ "$rancher_code" =~ ^(200|302|401|403)$ ]]; then
-    record_ok "Rancher HTTPS endpoint responds with HTTP ${rancher_code}"
-  else
-    record_warn "Rancher HTTPS endpoint did not return an expected code (got '${rancher_code:-none}')"
+  local rancher_present="n" registry_present="n"
+  if k get ingress rancher -n cattle-system >/dev/null 2>&1; then
+    rancher_present="y"
+  fi
+  if k get ingress registry -n registry >/dev/null 2>&1; then
+    registry_present="y"
   fi
 
-  if [[ "$registry_code" =~ ^(200|401)$ ]]; then
-    record_ok "Registry HTTPS endpoint responds with HTTP ${registry_code}"
+  if [[ "$rancher_present" == "y" ]]; then
+    if getent hosts rancher.home.arpa >/dev/null 2>&1; then
+      record_ok "rancher.home.arpa resolves locally"
+    else
+      record_warn "rancher.home.arpa does not resolve locally"
+    fi
+    local rancher_code
+    rancher_code="$(curl -k -s -o /dev/null -w '%{http_code}' --max-time 10 https://rancher.home.arpa || true)"
+    if [[ "$rancher_code" =~ ^(200|302|401|403)$ ]]; then
+      record_ok "Rancher HTTPS endpoint responds with HTTP ${rancher_code}"
+    else
+      record_warn "Rancher HTTPS endpoint did not return an expected code (got '${rancher_code:-none}')"
+    fi
   else
-    record_warn "Registry HTTPS endpoint did not return an expected code (got '${registry_code:-none}')"
+    info "Rancher ingress is not present; skipping Rancher DNS/HTTPS checks"
+  fi
+
+  if [[ "$registry_present" == "y" ]]; then
+    if getent hosts registry.home.arpa >/dev/null 2>&1; then
+      record_ok "registry.home.arpa resolves locally"
+    else
+      record_warn "registry.home.arpa does not resolve locally"
+    fi
+    local registry_code
+    registry_code="$(curl -k -s -o /dev/null -w '%{http_code}' --max-time 10 https://registry.home.arpa/v2/ || true)"
+    if [[ "$registry_code" =~ ^(200|401)$ ]]; then
+      record_ok "Registry HTTPS endpoint responds with HTTP ${registry_code}"
+    else
+      record_warn "Registry HTTPS endpoint did not return an expected code (got '${registry_code:-none}')"
+    fi
+  else
+    info "Registry ingress is not present; skipping Registry DNS/HTTPS checks"
   fi
 }
 

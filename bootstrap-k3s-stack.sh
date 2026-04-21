@@ -47,8 +47,9 @@ MANIFEST_COMPONENT_ORDER=(k3s helm cert_manager clusterissuer longhorn rancher r
 
 need_cmd() { command -v "$1" >/dev/null 2>&1; }
 pkg_installed() { dpkg -s "$1" >/dev/null 2>&1; }
-service_active() { systemctl is-active --quiet "$1"; }
+service_active() { systemctl is-active --quiet "$1" >/dev/null 2>&1; }
 mount_exists() { mountpoint -q "$1"; }
+can_use_tty() { [[ -t 0 && -t 1 && -r /dev/tty && -w /dev/tty ]]; }
 
 result_for_mode() {
   if [[ "$DRY_RUN" == "1" ]]; then
@@ -167,7 +168,7 @@ cleanup_exit() {
 prompt() {
   local var="$1" default="$2" msg="$3"
   local val
-  if [[ -r /dev/tty && -w /dev/tty ]]; then
+  if can_use_tty; then
     printf '%s [%s]: ' "$msg" "$default" > /dev/tty
     IFS= read -r val < /dev/tty
   else
@@ -182,7 +183,7 @@ prompt_yesno() {
   local var="$1" default="$2" msg="$3"
   local val
   local d="$default"
-  if [[ -r /dev/tty && -w /dev/tty ]]; then
+  if can_use_tty; then
     printf '%s [%s] (y/n): ' "$msg" "$d" > /dev/tty
     IFS= read -r val < /dev/tty
   else
@@ -198,7 +199,7 @@ prompt_yesno() {
 }
 
 bind_stdin_to_tty() {
-  if [[ -r /dev/tty ]]; then
+  if can_use_tty; then
     exec </dev/tty
   fi
 }
@@ -322,6 +323,30 @@ wait_for_secret() {
   start="$(date +%s)"
   while true; do
     if secret_exists "$ns" "$name"; then
+      return 0
+    fi
+
+    now="$(date +%s)"
+    if (( now - start > timeout )); then
+      return 1
+    fi
+    sleep 2
+  done
+}
+
+wait_for_certificate_ready() {
+  local ns="$1" name="$2" timeout="${3:-180}"
+  local start now ready
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log "[dry-run] Skipping wait for certificate ${ns}/${name}."
+    return 0
+  fi
+
+  start="$(date +%s)"
+  while true; do
+    ready="$(kubectl_k3s get certificate "$name" -n "$ns" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)"
+    if [[ "$ready" == "True" ]]; then
       return 0
     fi
 
@@ -559,6 +584,33 @@ wait_pods_ready() {
       warn "Timeout waiting for namespace '$ns'. Showing pods:"
       kubectl_k3s get pods -n "$ns" -o wide || true
       break
+    fi
+    sleep 5
+  done
+}
+
+wait_service_endpoints() {
+  local ns="$1" svc="$2" timeout="${3:-180}"
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log "[dry-run] Skipping wait for service endpoints '${ns}/${svc}'."
+    return
+  fi
+
+  log "Waiting for service '${svc}' in namespace '${ns}' to have endpoints (timeout ${timeout}s)..."
+  local start now subsets
+  start="$(date +%s)"
+  while true; do
+    subsets="$(kubectl_k3s get endpoints -n "$ns" "$svc" -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null || true)"
+    if [[ -n "$subsets" ]]; then
+      log "Service '${svc}' in namespace '${ns}' has endpoints."
+      return
+    fi
+
+    now="$(date +%s)"
+    if (( now - start > timeout )); then
+      warn "Timeout waiting for service '${svc}' in namespace '${ns}' to gain endpoints."
+      kubectl_k3s get endpoints -n "$ns" "$svc" -o wide || true
+      return
     fi
     sleep 5
   done
@@ -950,6 +1002,7 @@ ensure_cert_manager() {
   ensure_namespace cert-manager
   run_cmd "Applying cert-manager manifest" sudo k3s kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
   wait_pods_ready "cert-manager" 420
+  wait_service_endpoints "cert-manager" "cert-manager-webhook" 180
   manifest_complete_component "cert_manager" "$(result_for_mode installed)"
 }
 
@@ -1049,9 +1102,14 @@ install_longhorn_if_needed() {
   if [[ "$make_default_sc" == "y" ]]; then
     if storageclass_exists longhorn; then
       run_cmd "Marking Longhorn as default StorageClass" kubectl_k3s patch storageclass longhorn -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}' || true
+      if storageclass_exists local-path; then
+        run_cmd "Marking local-path as non-default StorageClass" kubectl_k3s patch storageclass local-path -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}' || true
+      fi
     else
       warn "StorageClass 'longhorn' was not found after installation."
     fi
+  elif storageclass_exists longhorn; then
+    run_cmd "Marking Longhorn as non-default StorageClass" kubectl_k3s patch storageclass longhorn -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}' || true
   fi
   manifest_complete_component "longhorn" "$(result_for_mode installed)"
 }
@@ -1107,6 +1165,10 @@ EOF
     log "Waiting for Rancher TLS secret to be issued..."
     if ! wait_for_secret cattle-system rancher-tls 120; then
       err "Timed out waiting for cattle-system/rancher-tls."
+      exit 1
+    fi
+    if ! wait_for_certificate_ready cattle-system rancher-tls 180; then
+      err "Timed out waiting for cattle-system/rancher-tls Certificate to become Ready."
       exit 1
     fi
 
@@ -1187,6 +1249,15 @@ spec:
   - ${registry_host}
 EOF
 )"
+    log "Waiting for Registry TLS secret to be issued..."
+    if ! wait_for_secret registry registry-tls 120; then
+      err "Timed out waiting for registry/registry-tls."
+      exit 1
+    fi
+    if ! wait_for_certificate_ready registry registry-tls 180; then
+      err "Timed out waiting for registry/registry-tls Certificate to become Ready."
+      exit 1
+    fi
   fi
 
   if [[ "$registry_auth_enabled" == "y" ]]; then
@@ -1513,14 +1584,6 @@ main() {
     HELM_ACTION="install"
   fi
 
-  if [[ "$cert_manager_present" == "y" ]]; then
-    CERT_MANAGER_ACTION="reuse"
-  elif [[ "$rancher_present" != "y" || "$registry_present" != "y" ]]; then
-    prompt_yesno INSTALL_CERT_MANAGER "y" "cert-manager is missing. Install it now? [required for TLS-dependent installs]"
-    [[ "$INSTALL_CERT_MANAGER" == "y" ]] || { err "Skipping cert-manager would leave TLS-dependent installs unsupported."; exit 1; }
-    CERT_MANAGER_ACTION="install"
-  fi
-
   if [[ "$longhorn_present" == "y" ]]; then
     prompt_yesno REUSE_LONGHORN "y" "Longhorn is already present. Leave it unchanged and continue? [optional]"
     if [[ "$REUSE_LONGHORN" == "y" ]]; then LONGHORN_ACTION="reuse"; else LONGHORN_ACTION="skip"; fi
@@ -1543,6 +1606,17 @@ main() {
   else
     prompt_yesno INSTALL_REGISTRY "y" "The in-cluster registry is missing. Install it now? [optional]"
     if [[ "$INSTALL_REGISTRY" == "y" ]]; then REGISTRY_ACTION="install"; else REGISTRY_ACTION="skip"; fi
+  fi
+
+  if [[ "$cert_manager_present" == "y" ]]; then
+    CERT_MANAGER_ACTION="reuse"
+  elif [[ "$RANCHER_ACTION" == "install" || "$REGISTRY_ACTION" == "install" ]]; then
+    prompt_yesno INSTALL_CERT_MANAGER "y" "cert-manager is missing. Install it now? [required for TLS-dependent installs]"
+    [[ "$INSTALL_CERT_MANAGER" == "y" ]] || { err "Skipping cert-manager would leave TLS-dependent installs unsupported."; exit 1; }
+    CERT_MANAGER_ACTION="install"
+  else
+    CERT_MANAGER_ACTION="skip"
+    MANIFEST_RESULT["cert_manager"]="skipped"
   fi
 
   prompt_yesno ENABLE_NFS "y" "Do you want to ensure a local NFS server is available for host-to-cluster shared files? [optional]"
