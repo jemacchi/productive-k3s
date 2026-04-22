@@ -9,8 +9,8 @@ ALL="n"
 usage() {
   cat <<'EOU'
 Usage:
-  ./test-in-vm-cleanup.sh --name <vm-name> [--purge]
-  ./test-in-vm-cleanup.sh --all [--purge]
+  ./tests/test-in-vm-cleanup.sh --name <vm-name> [--purge]
+  ./tests/test-in-vm-cleanup.sh --all [--purge]
 
 Notes:
   - Requires Multipass on the host.

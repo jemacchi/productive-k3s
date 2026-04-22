@@ -9,7 +9,8 @@ VM_DISK="40G"
 KEEP_VM="n"
 PURGE_ON_CLEANUP="n"
 VM_NAME=""
-REPO_DIR="$(pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REPO_NAME="$(basename "$REPO_DIR")"
 REMOTE_DIR="/home/ubuntu/${REPO_NAME}"
 VM_CREATED="n"
@@ -24,13 +25,13 @@ BOOTSTRAP_MANIFEST_LOCAL=""
 usage() {
   cat <<'EOU'
 Usage:
-  ./test-in-vm.sh [--profile smoke|core|full|full-clean|full-rollback] [--name <vm-name>] [--image <ubuntu-release>] [--cpus <n>] [--memory <size>] [--disk <size>] [--keep-vm] [--purge-on-cleanup]
+  ./tests/test-in-vm.sh [--profile smoke|core|full|full-clean|full-rollback] [--name <vm-name>] [--image <ubuntu-release>] [--cpus <n>] [--memory <size>] [--disk <size>] [--keep-vm] [--purge-on-cleanup]
 
 Profiles:
   smoke          Launch a clean VM and run bootstrap in --dry-run mode
   core           Launch a clean VM, install k3s + helm, skip optional components, then validate
   full           Launch a clean VM, install the full stack with default answers, then validate
-  full-clean     Run the full profile and then run clean-k3s-stack.sh --apply inside the VM
+  full-clean     Run the full profile and then run scripts/clean-k3s-stack.sh --apply inside the VM
   full-rollback  Run the full profile and then build/apply a rollback from the generated bootstrap manifest
 
 Notes:
@@ -205,7 +206,7 @@ run_bootstrap_with_answers() {
   local answers="$2"
   local escaped_answers
   escaped_answers=$(printf '%q' "$answers")
-  run_in_vm "cd '$REMOTE_DIR' && printf '%s' $escaped_answers | ./bootstrap-k3s-stack.sh $mode"
+  run_in_vm "cd '$REMOTE_DIR' && printf '%s' $escaped_answers | ./scripts/bootstrap-k3s-stack.sh $mode"
   capture_bootstrap_manifest
 }
 
@@ -216,7 +217,7 @@ run_validate_with_retries() {
   start_ts=$(date +%s)
 
   while true; do
-    if run_in_vm "cd '$REMOTE_DIR' && ./validate-k3s-stack.sh --strict"; then
+    if run_in_vm "cd '$REMOTE_DIR' && ./scripts/validate-k3s-stack.sh --strict"; then
       return 0
     fi
 
@@ -297,7 +298,7 @@ run_full_clean() {
   run_full
   log "Running destructive clean profile inside the VM"
   confirm=$'y\nCLEAN\n'
-  run_in_vm "cd '$REMOTE_DIR' && printf '%s' $(printf '%q' "$confirm") | ./clean-k3s-stack.sh --apply"
+  run_in_vm "cd '$REMOTE_DIR' && printf '%s' $(printf '%q' "$confirm") | ./scripts/clean-k3s-stack.sh --apply"
   assert_in_vm "systemctl is-active --quiet k3s && exit 1 || exit 0" "k3s service is no longer active after clean"
 }
 
@@ -312,11 +313,11 @@ run_full_rollback() {
   fi
 
   log "Running rollback plan inside the VM"
-  run_in_vm "cd '$REMOTE_DIR' && ./rollback-k3s-stack.sh --to '$manifest' --plan"
+  run_in_vm "cd '$REMOTE_DIR' && ./scripts/rollback-k3s-stack.sh --to '$manifest' --plan"
 
   log "Applying rollback inside the VM"
   rollback_confirm=$'y\n'
-  run_in_vm "cd '$REMOTE_DIR' && printf '%s' $(printf '%q' "$rollback_confirm") | ./rollback-k3s-stack.sh --to '$manifest' --apply"
+  run_in_vm "cd '$REMOTE_DIR' && printf '%s' $(printf '%q' "$rollback_confirm") | ./scripts/rollback-k3s-stack.sh --to '$manifest' --apply"
 
   assert_in_vm "! sudo k3s kubectl get namespace cert-manager >/dev/null 2>&1" "cert-manager namespace was removed by rollback"
   assert_in_vm "! sudo k3s kubectl get namespace longhorn-system >/dev/null 2>&1" "longhorn-system namespace was removed by rollback"

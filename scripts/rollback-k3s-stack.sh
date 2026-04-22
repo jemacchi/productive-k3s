@@ -90,7 +90,7 @@ delete_named_resources_matching() {
 usage() {
   cat <<'EOF'
 Usage:
-  ./rollback-k3s-stack.sh --to runs/bootstrap-...json [--plan|--apply]
+  ./scripts/rollback-k3s-stack.sh --to runs/bootstrap-...json [--plan|--apply]
 
 Options:
   --to <file>   Bootstrap run manifest JSON to evaluate

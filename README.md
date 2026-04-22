@@ -13,13 +13,13 @@ Recommended CLI usage:
 - the scripts are designed to work with `sudo k3s kubectl`
 - a standalone `kubectl` binary in your `PATH` is not required for the managed workflow in this repository
 - Docker is not required for the stack itself; `k3s` uses `containerd` and that is enough for bootstrap, validation, and normal operation
-- Docker is only needed for optional host-side workflows such as `test-in-docker.sh` and `validate-k3s-stack.sh --docker-registry-test`
+- Docker is only needed for optional host-side workflows such as `tests/test-in-docker.sh` and `scripts/validate-k3s-stack.sh --docker-registry-test`
 - if you want a normal-user workflow for ad hoc commands, keep a valid `kubeconfig` in `~/.kube/config`
 - the bootstrap logs this explicitly so users can tell whether `kubectl` was detected and whether that matters
 
 ## Scripts
 
-### `bootstrap-k3s-stack.sh`
+### `scripts/bootstrap-k3s-stack.sh`
 
 Installs or reuses existing components and optionally applies local host changes:
 
@@ -69,20 +69,24 @@ Longhorn safety note:
 - the bootstrap can create the Longhorn data directory if needed
 - it does **not** format or mount disks
 - if you want dedicated storage for Longhorn, prepare and mount it before running the bootstrap
+- this repository assumes a single-node-first setup, so the bootstrap now applies safer Longhorn defaults for that case:
+  - replica count `1`
+  - `longhorn-single` storage class for single-node workloads
+  - lower minimal available storage threshold suitable for dev/lab environments
 
 Usage:
 
 ```bash
-./bootstrap-k3s-stack.sh
+./scripts/bootstrap-k3s-stack.sh
 ```
 
 Dry-run:
 
 ```bash
-./bootstrap-k3s-stack.sh --dry-run
+./scripts/bootstrap-k3s-stack.sh --dry-run
 ```
 
-### `validate-k3s-stack.sh`
+### `scripts/validate-k3s-stack.sh`
 
 Validates the stack and local host state.
 
@@ -111,19 +115,19 @@ Validation behavior for optional components:
 Usage:
 
 ```bash
-./validate-k3s-stack.sh
+./scripts/validate-k3s-stack.sh
 ```
 
 Strict mode:
 
 ```bash
-./validate-k3s-stack.sh --strict
+./scripts/validate-k3s-stack.sh --strict
 ```
 
 JSON output:
 
 ```bash
-./validate-k3s-stack.sh --json
+./scripts/validate-k3s-stack.sh --json
 ```
 
 Real registry validation with Docker:
@@ -131,16 +135,16 @@ Real registry validation with Docker:
 Anonymous mode:
 
 ```bash
-./validate-k3s-stack.sh --docker-registry-test
+./scripts/validate-k3s-stack.sh --docker-registry-test
 ```
 
 Authenticated mode:
 
 ```bash
-REGISTRY_USER=registry REGISTRY_PASSWORD='your-password' ./validate-k3s-stack.sh --docker-registry-test
+REGISTRY_USER=registry REGISTRY_PASSWORD='your-password' ./scripts/validate-k3s-stack.sh --docker-registry-test
 ```
 
-### `backup-k3s-stack.sh`
+### `scripts/backup-k3s-stack.sh`
 
 Exports useful stack resources and configuration into a timestamped directory.
 
@@ -159,24 +163,24 @@ Includes:
 Usage:
 
 ```bash
-./backup-k3s-stack.sh
+./scripts/backup-k3s-stack.sh
 ```
 
 Custom output directory:
 
 ```bash
-./backup-k3s-stack.sh /tmp/my-k3s-backup
+./scripts/backup-k3s-stack.sh /tmp/my-k3s-backup
 ```
 
-### `rollback-k3s-stack.sh`
+### `scripts/rollback-k3s-stack.sh`
 
 Builds a rollback plan from a bootstrap run manifest and can apply the safe subset of that rollback. It now includes extra teardown handling for Rancher/Fleet/Turtles and Longhorn cluster-scoped artifacts so namespaces are less likely to get stuck during removal.
 
 Usage:
 
 ```bash
-./rollback-k3s-stack.sh --to runs/bootstrap-...json --plan
-./rollback-k3s-stack.sh --to runs/bootstrap-...json --apply
+./scripts/rollback-k3s-stack.sh --to runs/bootstrap-...json --plan
+./scripts/rollback-k3s-stack.sh --to runs/bootstrap-...json --apply
 ```
 
 Notes:
@@ -185,15 +189,15 @@ Notes:
 - does not treat reused components as rollback targets
 - leaves high-impact host actions such as removing `k3s` or `helm` as manual review in this first implementation
 
-### `clean-k3s-stack.sh`
+### `scripts/clean-k3s-stack.sh`
 
 Fully destructive local cleanup helper for tearing down the stack. It includes extra cleanup for Rancher/Fleet/Turtles and Longhorn cluster-scoped resources to reduce teardown hangs.
 
 Usage:
 
 ```bash
-./clean-k3s-stack.sh --plan
-./clean-k3s-stack.sh --apply
+./scripts/clean-k3s-stack.sh --plan
+./scripts/clean-k3s-stack.sh --apply
 ```
 
 Notes:
@@ -203,37 +207,37 @@ Notes:
 - it prints a strong warning and requires explicit confirmation before applying
 - it removes cluster resources and local integrations, but does not delete arbitrary user files inside Longhorn or NFS data directories
 
-### `test-in-docker.sh`
+### `tests/test-in-docker.sh`
 
 Containerized smoke harness for testing the bootstrap in an isolated Ubuntu container. This is optional and requires Docker on the host.
 
 Usage:
 
 ```bash
-./test-in-docker.sh
+./tests/test-in-docker.sh
 ```
 
 Notes:
 
 - this is a smoke-only harness
-- it builds the test image and runs `bootstrap-k3s-stack.sh --dry-run` inside the container
+- it builds the test image and runs `scripts/bootstrap-k3s-stack.sh --dry-run` inside the container
 - the Docker image build only prepares the environment
 - the actual bootstrap smoke test happens at `docker run` time, not during `docker build`
 - it validates the bootstrap flow, prompts, dry-run behavior, and run manifest generation
 - it does not perform a real `k3s` installation inside the container
 
-### `test-in-vm.sh`
+### `tests/test-in-vm.sh`
 
 Automated VM-based integration harness for real bootstrap testing. This requires Multipass on the host.
 
 Usage:
 
 ```bash
-./test-in-vm.sh --profile smoke
-./test-in-vm.sh --profile core
-./test-in-vm.sh --profile full
-./test-in-vm.sh --profile full-clean
-./test-in-vm.sh --profile full-rollback
+./tests/test-in-vm.sh --profile smoke
+./tests/test-in-vm.sh --profile core
+./tests/test-in-vm.sh --profile full
+./tests/test-in-vm.sh --profile full-clean
+./tests/test-in-vm.sh --profile full-rollback
 ```
 
 Profiles:
@@ -241,21 +245,21 @@ Profiles:
 - `smoke`
   - launches a clean VM
   - copies the repository
-  - runs `bootstrap-k3s-stack.sh --dry-run`
+  - runs `scripts/bootstrap-k3s-stack.sh --dry-run`
 - `core`
   - launches a clean VM
   - installs `k3s` and `helm`
   - skips optional components
   - waits for the VM state to settle
-  - runs `validate-k3s-stack.sh --strict`
+  - runs `scripts/validate-k3s-stack.sh --strict`
 - `full`
   - launches a clean VM
   - installs the full stack with default answers
   - waits for the stack to settle
-  - runs `validate-k3s-stack.sh --strict`
+  - runs `scripts/validate-k3s-stack.sh --strict`
 - `full-clean`
   - runs the `full` profile
-  - runs `clean-k3s-stack.sh --apply` inside the VM
+  - runs `scripts/clean-k3s-stack.sh --apply` inside the VM
   - verifies that `k3s` is no longer active
 - `full-rollback`
   - runs the `full` profile
@@ -273,15 +277,15 @@ Notes:
 - the latest bootstrap manifest from inside the VM is also copied into `test-artifacts/` when available
 - `full-clean` and `full-rollback` are intended to validate teardown behavior, not just installation success
 
-### `test-in-vm-cleanup.sh`
+### `tests/test-in-vm-cleanup.sh`
 
 Cleanup helper for Multipass-based test VMs.
 
 Usage:
 
 ```bash
-./test-in-vm-cleanup.sh --name <vm-name>
-./test-in-vm-cleanup.sh --all --purge
+./tests/test-in-vm-cleanup.sh --name <vm-name>
+./tests/test-in-vm-cleanup.sh --all --purge
 ```
 
 Notes:
@@ -289,55 +293,95 @@ Notes:
 - requires Multipass on the host
 - `--all` only targets VMs whose name starts with `productive-k3s-test-`
 
+## Utilities
+
+Helper scripts live under `utils/` and are intended as operational references for quick inspection and smoke checks.
+
+- `utils/list-registry-images.sh`
+  - lists repositories and tags from the in-cluster registry
+  - supports optional basic auth via `REGISTRY_USER` and `REGISTRY_PASSWORD`
+- `utils/inspect-ingress.sh`
+  - shows Traefik service exposure plus all ingress rules
+- `utils/inspect-rancher.sh`
+  - shows Rancher namespace health, rollout, ingress, TLS-related objects, and a simple HTTPS probe
+- `utils/inspect-longhorn.sh`
+  - shows Longhorn namespace health, storage classes, settings, and volumes
+- `utils/inspect-longhorn-volumes.sh`
+  - focuses on PVC-to-Longhorn volume health, scheduling-related settings, and problematic volumes
+
+Examples:
+
+```bash
+./utils/list-registry-images.sh
+./utils/inspect-ingress.sh
+./utils/inspect-rancher.sh
+./utils/inspect-longhorn.sh
+```
+
+## Documentation
+
+Operational how-tos live under `docs/`.
+
+- [docs/README.md](/home/jmacchi/prg/jemacchi/productive-k3s/docs/README.md)
+- [docs/k3s-checks.md](/home/jmacchi/prg/jemacchi/productive-k3s/docs/k3s-checks.md)
+- [docs/ingress-checks.md](/home/jmacchi/prg/jemacchi/productive-k3s/docs/ingress-checks.md)
+- [docs/rancher-checks.md](/home/jmacchi/prg/jemacchi/productive-k3s/docs/rancher-checks.md)
+- [docs/registry-checks.md](/home/jmacchi/prg/jemacchi/productive-k3s/docs/registry-checks.md)
+- [docs/longhorn-checks.md](/home/jmacchi/prg/jemacchi/productive-k3s/docs/longhorn-checks.md)
+- [docs/longhorn-single-node-notes.md](/home/jmacchi/prg/jemacchi/productive-k3s/docs/longhorn-single-node-notes.md)
+- [docs/certificate-checks.md](/home/jmacchi/prg/jemacchi/productive-k3s/docs/certificate-checks.md)
+
+These documents focus on post-install verification and day-2 operational checks for the stack installed by this repository.
+
 ## Recommended Flow
 
 1. Install or reconcile:
 
 ```bash
-./bootstrap-k3s-stack.sh
+./scripts/bootstrap-k3s-stack.sh
 ```
 
 2. Validate:
 
 ```bash
-./validate-k3s-stack.sh
+./scripts/validate-k3s-stack.sh
 ```
 
 3. Optionally validate the registry with Docker:
 
 ```bash
-./validate-k3s-stack.sh --docker-registry-test
+./scripts/validate-k3s-stack.sh --docker-registry-test
 ```
 
 4. Export a configuration backup:
 
 ```bash
-./backup-k3s-stack.sh
+./scripts/backup-k3s-stack.sh
 ```
 
 5. If needed, review a rollback plan for a specific bootstrap run:
 
 ```bash
-./rollback-k3s-stack.sh --to runs/bootstrap-...json --plan
+./scripts/rollback-k3s-stack.sh --to runs/bootstrap-...json --plan
 ```
 
 6. If you want an isolated smoke test of the bootstrap flow:
 
 ```bash
-./test-in-docker.sh
+./tests/test-in-docker.sh
 ```
 
 7. If you want real bootstrap installation tests, install Multipass first and then run a VM-based profile:
 
 ```bash
-./test-in-vm.sh --profile core
+./tests/test-in-vm.sh --profile core
 ```
 
 8. If you want to exercise cleanup or rollback flows end-to-end in a VM:
 
 ```bash
-./test-in-vm.sh --profile full-clean
-./test-in-vm.sh --profile full-rollback
+./tests/test-in-vm.sh --profile full-clean
+./tests/test-in-vm.sh --profile full-rollback
 ```
 
 ## Operational Notes

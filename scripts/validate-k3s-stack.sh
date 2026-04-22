@@ -128,6 +128,78 @@ safe_run() {
   printf '%s' "$output"
 }
 
+cluster_node_count() {
+  k get nodes --no-headers 2>/dev/null | awk 'END {print NR+0}'
+}
+
+default_storageclasses() {
+  k get sc -o jsonpath='{range .items[*]}{.metadata.name}{"|"}{.metadata.annotations.storageclass\.kubernetes\.io/is-default-class}{"\n"}{end}' 2>/dev/null \
+  | awk -F'|' '$2 == "true" {print $1}'
+}
+
+longhorn_setting_value() {
+  local setting_name="$1"
+  k get settings.longhorn.io -n longhorn-system "$setting_name" -o jsonpath='{.value}' 2>/dev/null || true
+}
+
+check_longhorn_volume_health() {
+  need_cmd jq || {
+    record_warn "jq is not available; skipping detailed Longhorn volume health checks"
+    return
+  }
+
+  local volumes_json active_problematic inactive_problematic
+  if ! volumes_json="$(safe_run k get volumes.longhorn.io -n longhorn-system -o json 2>/dev/null)"; then
+    record_warn "unable to query detailed Longhorn volume state"
+    return
+  fi
+
+  active_problematic="$(printf '%s\n' "$volumes_json" | jq -r '
+    .items[]
+    | . as $v
+    | ((.status.kubernetesStatus.workloadsStatus // [])
+        | map(select((.podStatus // "") != "" and (.podStatus != "Succeeded") and (.podStatus != "Failed")))
+      ) as $active
+    | select(($active | length) > 0)
+    | select((.status.state // "") != "attached" or (.status.robustness // "") != "healthy")
+    | [
+        .metadata.name,
+        "state=" + (.status.state // "unknown"),
+        "robustness=" + (.status.robustness // "unknown"),
+        "workloads=" + ($active | map((.workloadType // "?") + "/" + (.workloadName // "?") + " pod=" + (.podName // "?") + " status=" + (.podStatus // "?")) | join("; "))
+      ]
+    | join(" ")
+  ')"
+
+  inactive_problematic="$(printf '%s\n' "$volumes_json" | jq -r '
+    .items[]
+    | . as $v
+    | ((.status.kubernetesStatus.workloadsStatus // [])
+        | map(select((.podStatus // "") != "" and (.podStatus != "Succeeded") and (.podStatus != "Failed")))
+      ) as $active
+    | select(($active | length) == 0)
+    | select((.status.state // "") != "attached" or (.status.robustness // "") != "healthy")
+    | [
+        .metadata.name,
+        "state=" + (.status.state // "unknown"),
+        "robustness=" + (.status.robustness // "unknown")
+      ]
+    | join(" ")
+  ')"
+
+  if [[ -n "$active_problematic" ]]; then
+    record_fail "Longhorn has problematic volumes backing active workloads"
+    printf '%s\n' "$active_problematic"
+  else
+    record_ok "Longhorn volumes backing active workloads are attached and healthy"
+  fi
+
+  if [[ -n "$inactive_problematic" ]]; then
+    record_warn "Longhorn has problematic volumes without active workloads"
+    printf '%s\n' "$inactive_problematic"
+  fi
+}
+
 active_pod_table() {
   k get pods "$@" --field-selector=status.phase!=Succeeded,status.phase!=Failed -o wide
 }
@@ -417,8 +489,40 @@ check_longhorn() {
   if volumes="$(safe_run k get volumes.longhorn.io -n longhorn-system 2>/dev/null)"; then
     if printf '%s\n' "$volumes" | awk 'NR>1 {print}' | grep -q .; then
       record_ok "Longhorn volumes API is responding"
+      check_longhorn_volume_health
     else
       record_ok "Longhorn is installed but no volumes exist yet"
+    fi
+  fi
+
+  local node_count
+  node_count="$(cluster_node_count)"
+  if [[ "$node_count" == "1" ]]; then
+    info "Checking Longhorn single-node alignment"
+
+    local default_scs
+    default_scs="$(default_storageclasses)"
+    if printf '%s\n' "$default_scs" | grep -qx 'longhorn-single'; then
+      record_ok "single-node cluster uses longhorn-single as the default StorageClass"
+    elif printf '%s\n' "$default_scs" | grep -q .; then
+      record_warn "single-node cluster default StorageClass is not longhorn-single"
+      printf '%s\n' "$default_scs"
+    else
+      record_warn "single-node cluster has no default StorageClass set to longhorn-single"
+    fi
+
+    local minimal_available
+    minimal_available="$(longhorn_setting_value storage-minimal-available-percentage)"
+    if [[ -z "$minimal_available" ]]; then
+      record_warn "unable to read Longhorn storage-minimal-available-percentage"
+    elif [[ "$minimal_available" =~ ^[0-9]+$ ]]; then
+      if (( minimal_available <= 10 )); then
+        record_ok "Longhorn storage-minimal-available-percentage is single-node friendly (${minimal_available})"
+      else
+        record_warn "Longhorn storage-minimal-available-percentage may be too aggressive for a single-node dev/lab cluster (${minimal_available})"
+      fi
+    else
+      record_warn "Longhorn storage-minimal-available-percentage is non-numeric (${minimal_available})"
     fi
   fi
 }

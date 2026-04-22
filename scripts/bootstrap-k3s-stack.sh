@@ -109,7 +109,7 @@ write_run_manifest() {
   {
     printf '{\n'
     printf '  "run_id": "%s",\n' "$(json_escape "$RUN_ID")"
-    printf '  "script": "bootstrap-k3s-stack.sh",\n'
+    printf '  "script": "scripts/bootstrap-k3s-stack.sh",\n'
     printf '  "mode": "%s",\n' "$( [[ "$DRY_RUN" == "1" ]] && printf 'dry-run' || printf 'apply' )"
     printf '  "status": "%s",\n' "$(json_escape "$RUN_STATUS")"
     printf '  "exit_code": %s,\n' "$exit_code"
@@ -122,7 +122,7 @@ write_run_manifest() {
 
     printf '  "settings": {\n'
     local first=1 key
-    for key in base_domain rancher_host registry_host tls_mode letsencrypt_environment longhorn_data_path longhorn_replica_count registry_pvc_size registry_storage_class registry_auth_enabled nfs_manage nfs_export_path nfs_allowed_network manage_local_hosts trust_registry_in_docker; do
+    for key in base_domain rancher_host registry_host tls_mode letsencrypt_environment longhorn_data_path longhorn_replica_count longhorn_minimal_available_percentage longhorn_single_node_mode registry_pvc_size registry_storage_class registry_auth_enabled nfs_manage nfs_export_path nfs_allowed_network manage_local_hosts trust_registry_in_docker; do
       [[ -n "${MANIFEST_SETTINGS[$key]+x}" ]] || continue
       if (( first == 0 )); then printf ',\n'; fi
       first=0
@@ -220,6 +220,14 @@ deployment_exists() { kubectl_k3s get deployment "$2" -n "$1" >/dev/null 2>&1; }
 secret_exists() { kubectl_k3s get secret "$2" -n "$1" >/dev/null 2>&1; }
 storageclass_exists() { kubectl_k3s get storageclass "$1" >/dev/null 2>&1; }
 clusterissuer_exists() { kubectl_k3s get clusterissuer "$1" >/dev/null 2>&1; }
+
+cluster_node_count() {
+  if service_active k3s; then
+    kubectl_k3s get nodes --no-headers 2>/dev/null | awk 'END {print NR+0}'
+  else
+    printf '0'
+  fi
+}
 helm_release_exists() {
   need_cmd helm || return 1
   helm status "$1" -n "$2" >/dev/null 2>&1
@@ -1065,6 +1073,8 @@ install_longhorn_if_needed() {
   local action="$2"
   local longhorn_data_path="$3"
   local replica_count="$4"
+  local minimal_available_pct="$5"
+  local single_node_mode="$6"
 
   if [[ "$action" == "reuse" && "$longhorn_present" == "y" ]]; then
     track_reuse "Longhorn"
@@ -1097,19 +1107,57 @@ install_longhorn_if_needed() {
     --set defaultSettings.defaultDataPath="${longhorn_data_path}"
   wait_pods_ready "longhorn-system" 600
 
+  if [[ "$single_node_mode" == "y" ]]; then
+    apply_manifest "Creating Longhorn single-node StorageClass" "$(cat <<EOF
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn-single
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "false"
+provisioner: driver.longhorn.io
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+parameters:
+  numberOfReplicas: "1"
+EOF
+)"
+
+    run_cmd "Setting Longhorn minimal available percentage to ${minimal_available_pct}" \
+      kubectl_k3s patch settings.longhorn.io storage-minimal-available-percentage -n longhorn-system --type=merge \
+      -p "{\"value\":\"${minimal_available_pct}\"}" || true
+  fi
+
   local make_default_sc="n"
-  prompt_yesno make_default_sc "n" "Make Longhorn the default StorageClass?"
+  if [[ "$single_node_mode" == "y" ]]; then
+    make_default_sc="y"
+  fi
+  prompt_yesno make_default_sc "$make_default_sc" "Make Longhorn the default StorageClass?"
   if [[ "$make_default_sc" == "y" ]]; then
-    if storageclass_exists longhorn; then
-      run_cmd "Marking Longhorn as default StorageClass" kubectl_k3s patch storageclass longhorn -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}' || true
+    local preferred_longhorn_sc="longhorn"
+    if [[ "$single_node_mode" == "y" ]] && storageclass_exists longhorn-single; then
+      preferred_longhorn_sc="longhorn-single"
+    fi
+    if storageclass_exists "$preferred_longhorn_sc"; then
+      run_cmd "Marking ${preferred_longhorn_sc} as default StorageClass" kubectl_k3s patch storageclass "$preferred_longhorn_sc" -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}' || true
+      if storageclass_exists longhorn && [[ "$preferred_longhorn_sc" != "longhorn" ]]; then
+        run_cmd "Marking longhorn as non-default StorageClass" kubectl_k3s patch storageclass longhorn -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}' || true
+      fi
       if storageclass_exists local-path; then
         run_cmd "Marking local-path as non-default StorageClass" kubectl_k3s patch storageclass local-path -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}' || true
       fi
+      if storageclass_exists longhorn-static; then
+        run_cmd "Marking longhorn-static as non-default StorageClass" kubectl_k3s patch storageclass longhorn-static -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}' || true
+      fi
     else
-      warn "StorageClass 'longhorn' was not found after installation."
+      warn "Preferred Longhorn StorageClass '${preferred_longhorn_sc}' was not found after installation."
     fi
   elif storageclass_exists longhorn; then
     run_cmd "Marking Longhorn as non-default StorageClass" kubectl_k3s patch storageclass longhorn -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}' || true
+    if storageclass_exists longhorn-single; then
+      run_cmd "Marking longhorn-single as non-default StorageClass" kubectl_k3s patch storageclass longhorn-single -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}' || true
+    fi
   fi
   manifest_complete_component "longhorn" "$(result_for_mode installed)"
 }
@@ -1540,6 +1588,7 @@ main() {
   local ADMIN_PASS="admin"
   local REGISTRY_SIZE="20Gi"
   local LONGHORN_REPLICA_COUNT="1"
+  local LONGHORN_MINIMAL_AVAILABLE_PERCENTAGE="10"
   local LONGHORN_DATA_PATH="/data"
   local REGISTRY_STORAGE_CLASS=""
   local TLS_CHOICE="2"
@@ -1555,6 +1604,12 @@ main() {
   local REGISTRY_AUTH_PASSWORD="change-me"
   local NODE_IP
   NODE_IP="$(get_primary_node_ip)"
+  local CLUSTER_NODE_COUNT
+  CLUSTER_NODE_COUNT="$(cluster_node_count)"
+  local SINGLE_NODE_LONGHORN_MODE="n"
+  if [[ "$CLUSTER_NODE_COUNT" == "1" || "$CLUSTER_NODE_COUNT" == "0" ]]; then
+    SINGLE_NODE_LONGHORN_MODE="y"
+  fi
 
   local K3S_ACTION="reuse"
   local HELM_ACTION="reuse"
@@ -1677,7 +1732,9 @@ main() {
     if [[ "$REGISTRY_ACTION" == "install" ]]; then
       prompt REGISTRY_HOST "${registry_existing_host:-registry.${DOMAIN}}" "Registry hostname (DNS name)"
       prompt REGISTRY_SIZE "$REGISTRY_SIZE" "Registry PVC size"
-      if storageclass_exists longhorn; then
+      if [[ "$SINGLE_NODE_LONGHORN_MODE" == "y" ]]; then
+        REGISTRY_STORAGE_CLASS="longhorn-single"
+      elif storageclass_exists longhorn; then
         REGISTRY_STORAGE_CLASS="longhorn"
       fi
       prompt REGISTRY_STORAGE_CLASS "$REGISTRY_STORAGE_CLASS" "Registry StorageClass (blank uses cluster default)"
@@ -1703,6 +1760,10 @@ main() {
   if [[ "$LONGHORN_ACTION" == "install" ]]; then
     prompt LONGHORN_DATA_PATH "$LONGHORN_DATA_PATH" "Longhorn data mount path"
     prompt LONGHORN_REPLICA_COUNT "$LONGHORN_REPLICA_COUNT" "Longhorn default replica count (1 for single-node)"
+    if [[ "$SINGLE_NODE_LONGHORN_MODE" == "y" ]]; then
+      prompt LONGHORN_MINIMAL_AVAILABLE_PERCENTAGE "$LONGHORN_MINIMAL_AVAILABLE_PERCENTAGE" "Longhorn storage minimal available percentage (10 is recommended for single-node dev/lab)"
+      log "Single-node Longhorn mode is enabled. The bootstrap will create a 'longhorn-single' StorageClass with numberOfReplicas=1."
+    fi
   fi
 
   if [[ "$TLS_CHOICE" == "2" ]]; then
@@ -1716,6 +1777,8 @@ main() {
   manifest_set_setting "letsencrypt_environment" "$LE_ENV"
   manifest_set_setting "longhorn_data_path" "$LONGHORN_DATA_PATH"
   manifest_set_setting "longhorn_replica_count" "$LONGHORN_REPLICA_COUNT"
+  manifest_set_setting "longhorn_minimal_available_percentage" "$LONGHORN_MINIMAL_AVAILABLE_PERCENTAGE"
+  manifest_set_setting "longhorn_single_node_mode" "$SINGLE_NODE_LONGHORN_MODE"
   manifest_set_setting "registry_pvc_size" "$REGISTRY_SIZE"
   manifest_set_setting "registry_storage_class" "$REGISTRY_STORAGE_CLASS"
   manifest_set_setting "registry_auth_enabled" "$REGISTRY_AUTH_ENABLED"
@@ -1778,7 +1841,7 @@ main() {
     ensure_issuer "$TLS_CHOICE" "$ISSUER_NAME" "$LE_EMAIL" "$LE_ENV"
   fi
   CURRENT_STEP="longhorn"
-  install_longhorn_if_needed "$longhorn_present" "$LONGHORN_ACTION" "$LONGHORN_DATA_PATH" "$LONGHORN_REPLICA_COUNT"
+  install_longhorn_if_needed "$longhorn_present" "$LONGHORN_ACTION" "$LONGHORN_DATA_PATH" "$LONGHORN_REPLICA_COUNT" "$LONGHORN_MINIMAL_AVAILABLE_PERCENTAGE" "$SINGLE_NODE_LONGHORN_MODE"
   CURRENT_STEP="rancher"
   install_rancher_if_needed "$rancher_present" "$RANCHER_ACTION" "$TLS_CHOICE" "$ISSUER_NAME" "$RANCHER_HOST" "$ADMIN_PASS" "$LE_EMAIL" "$LE_ENV"
   CURRENT_STEP="registry"

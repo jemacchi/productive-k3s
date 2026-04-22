@@ -83,7 +83,7 @@ service_active() { systemctl is-active --quiet "$1"; }
 usage() {
   cat <<'EOF'
 Usage:
-  ./clean-k3s-stack.sh [--plan|--apply]
+  ./scripts/clean-k3s-stack.sh [--plan|--apply]
 
 Modes:
   --plan   Show what would be removed (default)
