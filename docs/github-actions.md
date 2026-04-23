@@ -22,16 +22,17 @@ The hosted CI goal is:
 - run on a GitHub-hosted `ubuntu-24.04` runner
 - validate shell syntax
 - run the Docker smoke harness
-- run `scripts/bootstrap-k3s-stack.sh --dry-run` directly on the runner host
-- collect logs and the generated dry-run manifest
+- run the full bootstrap directly on the runner host
+- run strict validation directly on the runner host
+- run destructive cleanup directly on the runner host
+- collect logs and the generated manifest
 
-This gives a useful CI signal, but it is intentionally lighter than local Multipass validation.
+This gives a much stronger CI signal than a dry-run, but it is still different from local Multipass validation because it does not exercise the VM harness itself.
 
 It does not replace local Multipass-based testing for:
 
 - real VM bootstrap
 - rollback validation
-- full clean validation
 - Debian candidate validation
 
 ## Runner Model
@@ -102,7 +103,9 @@ The workflow should:
 - run on `ubuntu-24.04`
 - run shell syntax checks
 - run `tests/test-in-docker.sh`
-- run `scripts/bootstrap-k3s-stack.sh --dry-run` directly on the runner host
+- run the full bootstrap directly on the runner host
+- run `scripts/validate-k3s-stack.sh --strict`
+- run `scripts/clean-k3s-stack.sh --apply`
 - upload `test-artifacts/` and `runs/` as workflow artifacts
 - fail if `test-artifacts/hosted-validation-summary.json` does not end with `status == "success"`
 
