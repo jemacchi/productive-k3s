@@ -37,7 +37,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./tests/test-on-gh-hosted.sh
+          bash ./tests/test-on-gh-hosted.sh
 
       - name: Verify hosted summary
         shell: bash

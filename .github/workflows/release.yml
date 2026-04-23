@@ -31,7 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          archive_path="$(./scripts/build-release-bundle.sh "${GITHUB_REF_NAME}" dist)"
+          archive_path="$(bash ./scripts/build-release-bundle.sh "${GITHUB_REF_NAME}" dist)"
           archive_name="$(basename "$archive_path")"
           sha256sum "$archive_path" > "${archive_path}.sha256"
           archive_sha="$(cut -d' ' -f1 < "${archive_path}.sha256")"
