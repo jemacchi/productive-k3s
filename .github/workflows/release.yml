@@ -1,0 +1,63 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag ancestry against main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main:refs/remotes/origin/main --force
+          git merge-base --is-ancestor "$GITHUB_SHA" "origin/main"
+
+      - name: Build release archive
+        id: bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          archive_path="$(./scripts/build-release-bundle.sh "${GITHUB_REF_NAME}" dist)"
+          archive_name="$(basename "$archive_path")"
+          sha256sum "$archive_path" > "${archive_path}.sha256"
+          archive_sha="$(cut -d' ' -f1 < "${archive_path}.sha256")"
+          sed \
+            -e "s|__VERSION__|${GITHUB_REF_NAME}|g" \
+            -e "s|__OWNER__|${GITHUB_REPOSITORY_OWNER}|g" \
+            -e "s|__REPO__|${GITHUB_REPOSITORY#*/}|g" \
+            -e "s|__ARCHIVE_NAME__|${archive_name}|g" \
+            -e "s|__ARCHIVE_SHA256__|${archive_sha}|g" \
+            scripts/install-release-template.sh > dist/install-productive-k3s.sh
+          chmod +x dist/install-productive-k3s.sh
+          {
+            echo "archive_path=${archive_path}"
+            echo "archive_name=${archive_name}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "${GITHUB_REF_NAME}" \
+            "${{ steps.bundle.outputs.archive_path }}" \
+            "${{ steps.bundle.outputs.archive_path }}.sha256" \
+            "dist/install-productive-k3s.sh" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            --verify-tag

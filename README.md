@@ -8,6 +8,222 @@ Bootstrap and validation for a local `k3s` stack with:
 - internal registry
 - host NFS export
 
+## Reasons Behind
+
+`productive-k3s` is meant to provide a lightweight but production-oriented Kubernetes environment on a single host.
+
+The intent is to avoid ad hoc local setups and replace them with a stack that is:
+
+- reproducible
+- closer to real Kubernetes operations
+- simple enough to bootstrap, inspect, validate, back up, and tear down locally
+
+Core rationale:
+
+- `k3s`: lightweight Kubernetes distribution with low operational overhead and good compatibility with normal Kubernetes workflows
+- `cert-manager`: in-cluster TLS lifecycle management so ingress-exposed services do not depend on manual certificate handling
+- `Longhorn`: Kubernetes-native persistent storage for stateful workloads
+- `Rancher`: management UI for cluster inspection and operations
+- internal registry: local image push/pull workflow without depending on an external registry for every iteration
+- host NFS export: simple host-to-cluster shared file path for datasets and other host-managed files
+
+Detailed rationale:
+
+- [Why this stack exists](./docs/reasons-behind.md)
+- [Post-development testing guide](./docs/post-development-testing.md)
+- [GitHub Actions and release automation](./docs/github-actions.md)
+
+## Validated Platform Baseline
+
+The scripts in this repository have been developed and tested primarily against Ubuntu-based hosts.
+
+Validated baseline used during development:
+
+- real host: Ubuntu `22.04`
+- VM-based integration tests: Ubuntu images launched through `multipass`
+
+What this means in practice:
+
+- Ubuntu is the reference operating system for bootstrap, validation, rollback, cleanup, and VM-based testing
+- host package installation logic currently assumes `apt-get`
+- service management assumes `systemd`
+- the current test harness and contributor validation flow are built around Ubuntu VMs
+
+Support for other Linux distributions should not be assumed just because the scripts are shell-based.
+
+If you want to validate another distro, treat that as explicit additional work:
+
+- confirm package manager differences
+- confirm service/unit name differences
+- confirm filesystem and network cleanup behavior
+- add dedicated test coverage for that platform
+
+In practice, that may require:
+
+- distro-specific branches in existing scripts
+- additional test profiles
+- or separate distro-specific helper scripts if the differences become large enough
+
+Until that coverage exists, Ubuntu should be treated as the supported and validated base platform for this repository.
+
+Current candidate platform work:
+
+- Debian 12 `bookworm` is being prepared as a candidate validation target
+- candidate validation is documented in [Debian 12 candidate platform](./docs/debian-12-candidate.md)
+- Debian 12 should not be treated as fully supported until the required VM profile artifacts report `status: "success"`
+
+## Minimum Hardware
+
+This repository is designed first for a single-node host.
+
+Practical minimum for the full stack:
+
+- CPU: `4 vCPU`
+- RAM: `12 GB`
+- Disk: `60 GB` free SSD space
+
+Recommended for a smoother experience:
+
+- CPU: `6-8 vCPU`
+- RAM: `16 GB`
+- Disk: `100 GB+` free SSD space
+
+Why these numbers are not lower:
+
+- `Rancher` and `Longhorn` both add steady control-plane and management overhead
+- the internal registry consumes persistent storage
+- stateful workloads need headroom beyond the base platform itself
+- low free disk space is especially problematic for `Longhorn`
+
+Single-node note:
+
+- this setup is intentionally biased toward single-node operation
+- the bootstrap applies safer defaults for that mode, including `longhorn-single`, replica count `1`, and a reduced Longhorn minimal-available-space threshold
+
+## Software Requirements
+
+Software requirements depend on what you want to do with the repository.
+
+### Base Requirements
+
+Required for normal repository usage on the target host:
+
+- Linux host with `systemd`
+- `bash`
+- `sudo`
+- `curl`
+- `getent`
+- `make` if you want to use the provided `Makefile` targets
+
+Expected platform assumptions:
+
+- Ubuntu or another Debian-like Linux environment is the primary target
+- `apt-get` is used by the bootstrap to install missing OS packages when needed
+- the scripts are intended to run on a real host or VM, not on macOS or Windows directly
+
+### Bootstrap And Validation
+
+Required to bootstrap and validate the stack locally:
+
+- `sudo`
+- `curl`
+- `systemctl`
+- `getent`
+
+Installed or reused by the managed workflow:
+
+- `k3s`
+- `helm`
+
+Optional but commonly useful:
+
+- standalone `kubectl`
+- `docker` for registry push/pull validation with `--docker-registry-test`
+
+### Rollback And Backup
+
+Additional tools used by specific scripts:
+
+- `jq` for `scripts/rollback-k3s-stack.sh`
+- `tar` and `date` for `scripts/backup-k3s-stack.sh`
+
+### Docker Smoke Test
+
+Required only for the containerized smoke test:
+
+- `docker`
+
+Command:
+
+```bash
+make test-smoke
+```
+
+### VM-Based Test Harness
+
+Required only for the VM-based test harness:
+
+- `multipass`
+
+Commands:
+
+```bash
+make test-core
+./tests/test-in-vm.sh --platform ubuntu --image 24.04 --profile full
+./tests/test-in-vm.sh --platform ubuntu --image 24.04 --profile full-rollback
+./tests/test-in-vm.sh --platform ubuntu --image 24.04 --profile full-clean
+```
+
+CI note:
+
+- GitHub Actions uses a hosted `ubuntu-24.04` runner without Multipass
+- hosted bootstrap validation is triggered when a PR against `main` is opened, reopened, or marked ready for review
+- local Multipass validation remains the authoritative path for real VM install, rollback, clean, and Debian candidate testing
+
+### Utilities
+
+Useful tools for inspection and troubleshooting:
+
+- `jq`
+- `curl`
+- `docker` if you want to test registry push/pull from the host
+
+### Practical Summary
+
+If you only want to install and operate the stack locally, the practical host-side prerequisites are:
+
+- `bash`
+- `sudo`
+- `curl`
+- `getent`
+- `make`
+
+If you also want full contributor validation coverage, add:
+
+- `docker`
+- `multipass`
+- `jq`
+
+### Tool Reference
+
+| Tool | Required | Used for |
+| --- | --- | --- |
+| `bash` | yes | running all repository scripts |
+| `sudo` | yes | host changes, package installs, `k3s` operations |
+| `curl` | yes | downloading `k3s`, `helm`, and endpoint checks |
+| `getent` | yes | local hostname resolution checks during validation |
+| `systemd` / `systemctl` | yes | managing `k3s`, `iscsid`, and NFS-related services |
+| `make` | optional | convenience targets such as `make bootstrap`, `make validate`, `make test-smoke`, `make test-core` |
+| `k3s` | managed by repo | installed or reused by bootstrap for cluster operations |
+| `helm` | managed by repo | installed or reused by bootstrap for chart-based components |
+| `kubectl` | optional | ad hoc user workflow; managed repo flow uses `sudo k3s kubectl` |
+| `jq` | optional but recommended | required by rollback logic and useful for inspection and troubleshooting |
+| `tar` | optional | used by backup/export workflows |
+| `date` | optional | used by backup/export and artifact naming workflows |
+| `docker` | optional | `make test-smoke` and `scripts/validate-k3s-stack.sh --docker-registry-test` |
+| `multipass` | optional | VM-based validation with `make test-core` and `tests/test-in-vm.sh` |
+| `apt-get` | expected on target host | installing missing OS packages during bootstrap |
+
 Recommended CLI usage:
 
 - the scripts are designed to work with `sudo k3s kubectl`
@@ -15,6 +231,7 @@ Recommended CLI usage:
 - Docker is not required for the stack itself; `k3s` uses `containerd` and that is enough for bootstrap, validation, and normal operation
 - Docker is only needed for optional host-side workflows such as `tests/test-in-docker.sh` and `scripts/validate-k3s-stack.sh --docker-registry-test`
 - if you want a normal-user workflow for ad hoc commands, keep a valid `kubeconfig` in `~/.kube/config`
+- if standalone `kubectl` is detected, the bootstrap can also sync `~/.kube/config` from the k3s kubeconfig so `kubectl` does not fail with `x509: certificate signed by unknown authority`
 - the bootstrap logs this explicitly so users can tell whether `kubectl` was detected and whether that matters
 
 ## Scripts
@@ -233,11 +450,12 @@ Automated VM-based integration harness for real bootstrap testing. This requires
 Usage:
 
 ```bash
-./tests/test-in-vm.sh --profile smoke
-./tests/test-in-vm.sh --profile core
-./tests/test-in-vm.sh --profile full
-./tests/test-in-vm.sh --profile full-clean
-./tests/test-in-vm.sh --profile full-rollback
+./tests/test-in-vm.sh --platform ubuntu --image 24.04 --profile smoke
+./tests/test-in-vm.sh --platform ubuntu --image 24.04 --profile core
+./tests/test-in-vm.sh --platform ubuntu --image 24.04 --profile full
+./tests/test-in-vm.sh --platform ubuntu --image 24.04 --profile full-clean
+./tests/test-in-vm.sh --platform ubuntu --image 24.04 --profile full-rollback
+./tests/test-in-vm.sh --platform debian12 --image https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2 --profile core
 ```
 
 Profiles:
@@ -374,14 +592,14 @@ These documents focus on post-install verification and day-2 operational checks 
 7. If you want real bootstrap installation tests, install Multipass first and then run a VM-based profile:
 
 ```bash
-./tests/test-in-vm.sh --profile core
+./tests/test-in-vm.sh --platform ubuntu --image 24.04 --profile core
 ```
 
 8. If you want to exercise cleanup or rollback flows end-to-end in a VM:
 
 ```bash
-./tests/test-in-vm.sh --profile full-clean
-./tests/test-in-vm.sh --profile full-rollback
+./tests/test-in-vm.sh --platform ubuntu --image 24.04 --profile full-clean
+./tests/test-in-vm.sh --platform ubuntu --image 24.04 --profile full-rollback
 ```
 
 ## Operational Notes
@@ -392,7 +610,7 @@ These documents focus on post-install verification and day-2 operational checks 
   - anonymous
   - authenticated with `REGISTRY_USER` and `REGISTRY_PASSWORD`
 - The managed path in this repository is `sudo k3s kubectl ...`. Use that unless you explicitly want a separate normal-user `kubectl` workflow.
-- If you do want `kubectl` and `helm` as a normal user, keep a valid `kubeconfig` in `~/.kube/config`.
+- If you do want `kubectl` and `helm` as a normal user, keep a valid `kubeconfig` in `~/.kube/config`. The bootstrap can now sync that file for you when standalone `kubectl` is installed.
 
 ## Changelog
 

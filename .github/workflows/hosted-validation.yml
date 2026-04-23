@@ -1,0 +1,56 @@
+name: Hosted Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - ready_for_review
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hosted-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ubuntu-24-04:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false }}
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify required tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker version
+          jq --version
+
+      - name: Run hosted validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./tests/test-on-gh-hosted.sh
+
+      - name: Verify hosted summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e '.status == "success"' test-artifacts/hosted-validation-summary.json
+
+      - name: Upload workflow artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hosted-validation-ubuntu-24.04
+          path: |
+            test-artifacts/
+            runs/
+          retention-days: 14
