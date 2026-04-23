@@ -89,12 +89,12 @@ Trigger:
   - `opened`
   - `reopened`
   - `ready_for_review`
+  - `synchronize`
 - optional manual dispatch
 
 Notes:
 
-- it does not run on every commit pushed to an existing PR
-- it does not run on `pull_request.synchronize`
+- it reruns when new commits are pushed to the PR branch
 - draft PRs are skipped until they are marked ready for review
 
 The workflow should:

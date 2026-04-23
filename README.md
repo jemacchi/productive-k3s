@@ -177,7 +177,7 @@ make test-core
 CI note:
 
 - GitHub Actions uses a hosted `ubuntu-24.04` runner without Multipass
-- hosted bootstrap validation is triggered when a PR against `main` is opened, reopened, or marked ready for review
+- hosted bootstrap validation is triggered when a PR against `main` is opened, reopened, marked ready for review, or updated with new commits
 - local Multipass validation remains the authoritative path for real VM install, rollback, clean, and Debian candidate testing
 
 ### Utilities
