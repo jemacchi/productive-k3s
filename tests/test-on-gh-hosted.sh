@@ -96,6 +96,34 @@ run_with_log() {
   return "$rc"
 }
 
+run_validate_with_retries() {
+  local timeout_secs="${1:-900}"
+  local sleep_secs="${2:-15}"
+  local start_ts now_ts
+  start_ts=$(date +%s)
+
+  : > "$HOST_VALIDATE_LOG"
+
+  while true; do
+    set +e
+    bash ./scripts/validate-k3s-stack.sh --strict > >(tee -a "$HOST_VALIDATE_LOG") 2>&1
+    local rc=$?
+    set -e
+    if [[ "$rc" -eq 0 ]]; then
+      return 0
+    fi
+
+    now_ts=$(date +%s)
+    if (( now_ts - start_ts >= timeout_secs )); then
+      echo "[ERROR] Hosted validation did not converge within ${timeout_secs}s" | tee -a "$HOST_VALIDATE_LOG"
+      return 1
+    fi
+
+    echo "[INFO] Hosted validation is not clean yet; waiting ${sleep_secs}s before retrying" | tee -a "$HOST_VALIDATE_LOG"
+    sleep "$sleep_secs"
+  done
+}
+
 main() {
   mkdir -p "$ARTIFACTS_DIR"
   trap 'cleanup_and_write_summary $?' EXIT
@@ -157,7 +185,7 @@ y
   copy_latest_manifest
 
   echo "[INFO] Running strict validation on hosted ubuntu-24.04"
-  if ! run_with_log "$HOST_VALIDATE_LOG" bash ./scripts/validate-k3s-stack.sh --strict; then
+  if ! run_validate_with_retries 900 15; then
     HOST_VALIDATE_STATUS="failed"
     return 1
   fi
