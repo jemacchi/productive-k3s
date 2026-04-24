@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Productive K3S</title>
+  <meta name="description" content="Run a production-like Kubernetes environment on a single virtual machine.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="container nav">
+      <a class="brand" href="#top">Productive K3S</a>
+      <div class="nav-links">
+        <a href="https://github.com/jemacchi/productive-k3s" target="_blank" rel="noreferrer">GitHub</a>
+        <a href="https://github.com/jemacchi/productive-k3s/blob/main/README.md" target="_blank" rel="noreferrer">README</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div class="container hero-grid">
+        <div class="hero-copy">
+          <div class="eyebrow">Single-node Kubernetes, done right</div>
+          <h1>Productive K3S</h1>
+          <p class="lead">
+            Productive K3S provides a simple way to run a production-like Kubernetes
+            environment on a single virtual machine.
+          </p>
+          <p class="sublead">
+            It is designed for teams that want to adopt Kubernetes practices without the
+            operational overhead and cost of managing a full multi-node cluster.
+          </p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="https://github.com/jemacchi/productive-k3s" target="_blank" rel="noreferrer">View on GitHub</a>
+            <a class="button button-secondary" href="https://github.com/jemacchi/productive-k3s/blob/main/README.md" target="_blank" rel="noreferrer">Open README</a>
+          </div>
+        </div>
+        <div class="hero-card">
+          <div class="card">
+            <h2>What it does</h2>
+            <ul class="feature-list">
+              <li>Deploys a single-node k3s cluster on a standard VM</li>
+              <li>Provides a Kubernetes-compatible environment out of the box</li>
+              <li>Enables running real workloads using manifests, Helm charts, and Kubernetes-native tooling</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container narrow">
+        <h2>Why it exists</h2>
+        <div class="gap-box">
+          <div class="gap-item">
+            <span class="gap-label">Option 1</span>
+            <p>A single VM with Docker Compose is simple, but not Kubernetes.</p>
+          </div>
+          <div class="gap-divider">↔</div>
+          <div class="gap-item">
+            <span class="gap-label">Option 2</span>
+            <p>A full Kubernetes cluster is powerful, but complex and costly.</p>
+          </div>
+        </div>
+        <p class="bridge">Productive K3S bridges that gap.</p>
+        <div class="mini-grid">
+          <div class="mini-card">Work with Kubernetes from day one</div>
+          <div class="mini-card">Keep infrastructure simple, just one VM</div>
+          <div class="mini-card">Avoid premature complexity</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section alt">
+      <div class="container grid-2">
+        <div class="card section-card">
+          <h2>Target use cases</h2>
+          <ul>
+            <li>Small teams and startups</li>
+            <li>Early-stage platforms</li>
+            <li>Cost-sensitive environments</li>
+            <li>Development and lightweight production workloads</li>
+          </ul>
+        </div>
+
+        <div class="card section-card">
+          <h2>Design principles</h2>
+          <ul>
+            <li><strong>Keep it simple:</strong> single host, minimal setup</li>
+            <li><strong>Stay Kubernetes-native:</strong> no abstractions over k8s</li>
+            <li><strong>Be migration-ready:</strong> workloads can move to a real cluster later</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container grid-2">
+        <div class="card section-card">
+          <h2>Supported environments</h2>
+          <ul>
+            <li>Ubuntu (LTS)</li>
+            <li>Debian (stable)</li>
+          </ul>
+          <p class="muted">
+            Optimized for standard cloud virtual machines across providers like AWS, GCP,
+            and DigitalOcean.
+          </p>
+        </div>
+
+        <div class="card section-card warning-card">
+          <h2>What it is not</h2>
+          <ul>
+            <li>Not a replacement for managed Kubernetes, such as EKS, GKE, or AKS</li>
+            <li>Not intended for large-scale, multi-node production clusters</li>
+          </ul>
+          <p class="muted strong">
+            Instead, it is a pragmatic entry point into Kubernetes.
+          </p>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
