@@ -1,4 +1,4 @@
-.PHONY: bootstrap dry-run backup validate validate-strict test-smoke test-core
+.PHONY: bootstrap dry-run backup validate validate-strict test-smoke test-core test-core-debian12 test-core-debian13
 
 bootstrap:
 	./scripts/bootstrap-k3s-stack.sh
@@ -19,4 +19,10 @@ test-smoke:
 	./tests/test-in-docker.sh
 
 test-core:
-	./tests/test-in-vm.sh --profile core
+	./tests/test-in-vm.sh --platform ubuntu --image 24.04 --profile core
+
+test-core-debian12:
+	./tests/test-in-vm.sh --platform debian12 --image https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2 --profile core
+
+test-core-debian13:
+	./tests/test-in-vm.sh --platform debian13 --image https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2 --profile core

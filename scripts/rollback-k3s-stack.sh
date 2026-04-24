@@ -80,11 +80,11 @@ resolve_kubeconfig() {
 
 delete_named_resources_matching() {
   local resource="$1" pattern="$2"
-  kubectl_k3s get "$resource" -o name 2>/dev/null | grep -E "$pattern" | while read -r name; do
+  while read -r name; do
     [[ -n "$name" ]] || continue
     log "Deleting ${name}"
     kubectl_k3s delete "$name" --ignore-not-found --wait=false || true
-  done
+  done < <(kubectl_k3s get "$resource" -o name 2>/dev/null | grep -E "$pattern" || true)
 }
 
 usage() {
@@ -168,6 +168,18 @@ ns_exists() { kubectl_k3s get ns "$1" >/dev/null 2>&1; }
 deployment_exists() { kubectl_k3s get deployment "$2" -n "$1" >/dev/null 2>&1; }
 clusterissuer_exists() { kubectl_k3s get clusterissuer "$1" >/dev/null 2>&1; }
 service_active() { systemctl is-active --quiet "$1"; }
+
+force_finalize_namespace_if_present() {
+  local namespace="$1"
+  if ! ns_exists "$namespace"; then
+    return 0
+  fi
+
+  warn "Namespace '${namespace}' still exists after rollback actions; forcing namespace finalization."
+  kubectl_k3s get namespace "$namespace" -o json \
+    | jq '.spec.finalizers = []' \
+    | kubectl_k3s replace --raw "/api/v1/namespaces/${namespace}/finalize" -f - >/dev/null || true
+}
 
 current_state() {
   local component="$1"
@@ -381,6 +393,7 @@ apply_helm_uninstall_longhorn() {
   helm uninstall longhorn -n longhorn-system || true
   sudo k3s kubectl delete namespace longhorn-system --ignore-not-found --wait=false || true
   delete_longhorn_cluster_artifacts
+  force_finalize_namespace_if_present longhorn-system
 }
 
 apply_helm_uninstall_rancher() {
@@ -391,10 +404,16 @@ apply_helm_uninstall_rancher() {
   sudo k3s kubectl delete namespace cattle-fleet-local-system --ignore-not-found --wait=false || true
   sudo k3s kubectl delete namespace cattle-fleet-system --ignore-not-found --wait=false || true
   sudo k3s kubectl delete namespace cattle-system --ignore-not-found --wait=false || true
+  force_finalize_namespace_if_present cattle-turtles-system
+  force_finalize_namespace_if_present cattle-capi-system
+  force_finalize_namespace_if_present cattle-fleet-local-system
+  force_finalize_namespace_if_present cattle-fleet-system
+  force_finalize_namespace_if_present cattle-system
 }
 
 apply_kubectl_delete_registry() {
   sudo k3s kubectl delete namespace registry --ignore-not-found --wait=false || true
+  force_finalize_namespace_if_present registry
 }
 
 apply_remove_nfs_export() {

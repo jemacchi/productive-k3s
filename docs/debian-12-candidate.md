@@ -1,0 +1,113 @@
+# Debian 12 Supported Platform
+
+This document records the supported validation baseline for Debian 12.
+
+Debian 12 is supported for this repository alongside Ubuntu 22.04, Ubuntu 24.04, and Debian 13.
+
+## Current Status
+
+Status: supported
+
+Target release:
+
+- Debian 12 `bookworm`
+
+Validation evidence retained:
+
+- `smoke`: passed with artifact `status: "success"`
+- `core`: passed with artifact `status: "success"`
+- `full`: passed with artifact `status: "success"`
+- `full-rollback`: passed with artifact `status: "success"`
+- `full-clean`: passed with artifact `status: "success"`
+
+Interpretation:
+
+- Debian 12 is validated for bootstrap, strict validation convergence, rollback, and destructive cleanup
+- Debian 12 should be treated as a supported platform, not as a candidate
+
+## Scope
+
+The validated model is:
+
+- host: any machine capable of running Multipass
+- VM guest: Debian 12 cloud image
+- scripts: executed inside the Debian 12 VM
+
+## Harness Defaults
+
+The VM harness supports:
+
+```bash
+./tests/test-in-vm.sh --platform debian12
+```
+
+When `--platform debian12` is used, the harness defaults to:
+
+- image: `https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2`
+- remote user: `debian`
+- remote directory: `/home/debian/productive-k3s`
+
+These values can be overridden:
+
+```bash
+./tests/test-in-vm.sh --platform debian12 --image <image-or-url> --remote-user <user> --remote-dir <path>
+```
+
+The bootstrap detects the host OS through `/etc/os-release`.
+
+Current behavior:
+
+- Ubuntu: supported
+- Debian 12: supported
+- Debian 13: supported
+- anything else: unsupported
+
+## Supported Validation Sequence
+
+Reference commands:
+
+### 1. Smoke
+
+```bash
+./tests/test-in-vm.sh --platform debian12 --image https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2 --profile smoke
+```
+
+### 2. Core
+
+```bash
+./tests/test-in-vm.sh --platform debian12 --image https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2 --profile core
+```
+
+### 3. Full
+
+```bash
+./tests/test-in-vm.sh --platform debian12 --image https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2 --profile full
+```
+
+### 4. Full Rollback
+
+```bash
+./tests/test-in-vm.sh --platform debian12 --image https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2 --profile full-rollback
+```
+
+### 5. Full Clean
+
+```bash
+./tests/test-in-vm.sh --platform debian12 --image https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2 --profile full-clean
+```
+
+## Artifact Review
+
+Check Debian 12 artifacts:
+
+```bash
+ls -1t test-artifacts/*debian12*.json | head
+jq '{status, profile, platform, image, remote_user, remote_dir, vm_name}' test-artifacts/*debian12*.json
+```
+
+Pass criteria:
+
+- each supported profile has `status: "success"`
+- each supported profile has `platform: "debian12"`
+
+Use the `test-in-vm-*.json` artifact as the authoritative pass/fail signal.

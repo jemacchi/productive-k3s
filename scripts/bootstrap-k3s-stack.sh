@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Incremental k3s stack bootstrap for Ubuntu
+# Incremental k3s stack bootstrap for Ubuntu and candidate Debian targets
 # - Detects existing installations first
 # - Prompts before each change
 # - Leaves existing cluster components untouched by default
@@ -38,6 +38,11 @@ RUN_STATUS="running"
 CURRENT_STEP=""
 MANIFEST_INITIALIZED=0
 SUDO_KA_PID=""
+OS_ID="unknown"
+OS_VERSION_ID="unknown"
+OS_CODENAME="unknown"
+OS_PRETTY_NAME="unknown"
+PLATFORM_SUPPORT="unsupported"
 declare -A MANIFEST_SETTINGS=()
 declare -A MANIFEST_DETECTED=()
 declare -A MANIFEST_PLANNED=()
@@ -70,6 +75,35 @@ json_escape() {
 
 manifest_set_setting() {
   MANIFEST_SETTINGS["$1"]="$2"
+}
+
+detect_host_platform() {
+  if [[ -r /etc/os-release ]]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    OS_ID="${ID:-unknown}"
+    OS_VERSION_ID="${VERSION_ID:-unknown}"
+    OS_CODENAME="${VERSION_CODENAME:-unknown}"
+    OS_PRETTY_NAME="${PRETTY_NAME:-${NAME:-unknown}}"
+  fi
+
+  case "$OS_ID:$OS_VERSION_ID" in
+    ubuntu:*)
+      PLATFORM_SUPPORT="supported"
+      ;;
+    debian:12|debian:13)
+      PLATFORM_SUPPORT="candidate"
+      ;;
+    *)
+      PLATFORM_SUPPORT="unsupported"
+      ;;
+  esac
+
+  manifest_set_setting "host_os_id" "$OS_ID"
+  manifest_set_setting "host_os_version_id" "$OS_VERSION_ID"
+  manifest_set_setting "host_os_codename" "$OS_CODENAME"
+  manifest_set_setting "host_os_pretty_name" "$OS_PRETTY_NAME"
+  manifest_set_setting "platform_support" "$PLATFORM_SUPPORT"
 }
 
 manifest_record_component() {
@@ -122,7 +156,7 @@ write_run_manifest() {
 
     printf '  "settings": {\n'
     local first=1 key
-    for key in base_domain rancher_host registry_host tls_mode letsencrypt_environment longhorn_data_path longhorn_replica_count longhorn_minimal_available_percentage longhorn_single_node_mode registry_pvc_size registry_storage_class registry_auth_enabled nfs_manage nfs_export_path nfs_allowed_network manage_local_hosts trust_registry_in_docker; do
+    for key in host_os_id host_os_version_id host_os_codename host_os_pretty_name platform_support base_domain rancher_host registry_host tls_mode letsencrypt_environment longhorn_data_path longhorn_replica_count longhorn_minimal_available_percentage longhorn_single_node_mode registry_pvc_size registry_storage_class registry_auth_enabled nfs_manage nfs_export_path nfs_allowed_network manage_local_hosts trust_registry_in_docker; do
       [[ -n "${MANIFEST_SETTINGS[$key]+x}" ]] || continue
       if (( first == 0 )); then printf ',\n'; fi
       first=0
@@ -317,6 +351,28 @@ apply_manifest() {
   fi
 
   printf '%s\n' "$manifest" | kubectl_k3s apply -f -
+}
+
+apply_manifest_with_retries() {
+  local desc="$1" manifest="$2"
+  local timeout_secs="${3:-120}"
+  local sleep_secs="${4:-5}"
+  local start_ts now_ts
+  start_ts="$(date +%s)"
+
+  while true; do
+    if apply_manifest "$desc" "$manifest"; then
+      return 0
+    fi
+
+    now_ts="$(date +%s)"
+    if (( now_ts - start_ts >= timeout_secs )); then
+      return 1
+    fi
+
+    warn "${desc} did not succeed yet. Waiting ${sleep_secs}s before retrying."
+    sleep "$sleep_secs"
+  done
 }
 
 wait_for_secret() {
@@ -619,6 +675,36 @@ wait_service_endpoints() {
       warn "Timeout waiting for service '${svc}' in namespace '${ns}' to gain endpoints."
       kubectl_k3s get endpoints -n "$ns" "$svc" -o wide || true
       return
+    fi
+    sleep 5
+  done
+}
+
+wait_k3s_ready() {
+  local timeout="${1:-180}"
+  local start now ready_nodes
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log "[dry-run] Skipping wait for k3s API readiness."
+    return 0
+  fi
+
+  log "Waiting for k3s API and node readiness (timeout ${timeout}s)..."
+  start="$(date +%s)"
+  while true; do
+    if service_active k3s && kubectl_k3s get nodes >/dev/null 2>&1; then
+      ready_nodes="$(kubectl_k3s get nodes --no-headers 2>/dev/null | awk '$2=="Ready"{count++} END{print count+0}')"
+      if (( ready_nodes > 0 )); then
+        log "k3s API is reachable and at least one node is Ready."
+        return 0
+      fi
+    fi
+
+    now="$(date +%s)"
+    if (( now - start > timeout )); then
+      err "Timed out waiting for k3s API readiness."
+      sudo systemctl status k3s --no-pager || true
+      kubectl_k3s get nodes -o wide || true
+      return 1
     fi
     sleep 5
   done
@@ -1019,6 +1105,7 @@ ensure_issuer() {
   local issuer_name="$2"
   local le_email="$3"
   local le_env="$4"
+  local issuer_manifest=""
 
   if clusterissuer_exists "$issuer_name"; then
     log "ClusterIssuer '${issuer_name}' already exists. Leaving it untouched."
@@ -1037,7 +1124,7 @@ ensure_issuer() {
   track_install "clusterissuer/${issuer_name}"
   log "Creating ClusterIssuer '${issuer_name}'..."
   if [[ "$tls_choice" == "1" ]]; then
-    apply_manifest "Creating ClusterIssuer ${issuer_name}" "$(cat <<EOF
+    issuer_manifest="$(cat <<EOF
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
@@ -1055,7 +1142,7 @@ spec:
 EOF
 )"
   else
-    apply_manifest "Creating ClusterIssuer ${issuer_name}" "$(cat <<EOF
+    issuer_manifest="$(cat <<EOF
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
@@ -1064,6 +1151,11 @@ spec:
   selfSigned: {}
 EOF
 )"
+  fi
+
+  if ! apply_manifest_with_retries "Creating ClusterIssuer ${issuer_name}" "$issuer_manifest" 180 5; then
+    err "Could not create ClusterIssuer '${issuer_name}' after waiting for cert-manager webhook readiness."
+    exit 1
   fi
   manifest_complete_component "clusterissuer" "$(result_for_mode installed)" "$issuer_name"
 }
@@ -1091,7 +1183,7 @@ install_longhorn_if_needed() {
 
   track_install "Longhorn"
   preflight_longhorn_install "$longhorn_data_path" || return
-  ensure_packages "Longhorn" open-iscsi
+  ensure_packages "Longhorn" open-iscsi jq
   ensure_iscsid
   warn "Longhorn storage path '${longhorn_data_path}' will be created if missing."
   warn "This script will not format or mount disks. Prepare dedicated mounted storage yourself if you need it."
@@ -1515,10 +1607,23 @@ main() {
   parse_args "$@"
   init_run_manifest
   trap cleanup_exit EXIT
+  detect_host_platform
   bind_stdin_to_tty
   sudo_keepalive
 
-  log "Incremental bootstrap: k3s + Rancher + Longhorn + Registry (Ubuntu)"
+  log "Detected host platform: ${OS_PRETTY_NAME}"
+  case "$PLATFORM_SUPPORT" in
+    supported)
+      ;;
+    candidate)
+      warn "Platform support: Debian ${OS_VERSION_ID} candidate. This path is intended for validation and may need fixes before being promoted to supported."
+      ;;
+    *)
+      warn "Platform support: unsupported. Ubuntu is the supported baseline; Debian 12 and Debian 13 are the current candidate paths."
+      ;;
+  esac
+
+  log "Incremental bootstrap: k3s + Rancher + Longhorn + Registry (${OS_PRETTY_NAME})"
   line "  Run manifest: ${RUN_MANIFEST}"
   if [[ "$DRY_RUN" == "1" ]]; then
     warn "Running in dry-run mode. No changes will be applied."
@@ -1827,6 +1932,7 @@ main() {
   CURRENT_STEP="helm"
   install_helm_if_needed "$HELM_ACTION"
   if service_active k3s; then
+    wait_k3s_ready 180
     CURRENT_STEP="cluster-inspection"
     log "Inspecting k3s node..."
     kubectl_k3s get nodes -o wide
