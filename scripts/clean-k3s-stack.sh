@@ -27,7 +27,7 @@ declare -a PLAN_ITEMS=()
 
 bind_stdin_to_tty() {
   if [[ -r /dev/tty ]]; then
-    exec </dev/tty
+    exec </dev/tty 2>/dev/null || true
   fi
 }
 
