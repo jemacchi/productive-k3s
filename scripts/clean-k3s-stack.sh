@@ -25,16 +25,22 @@ DEFAULT_REGISTRY_HOST="registry.home.arpa"
 DEFAULT_RANCHER_HOST="rancher.home.arpa"
 declare -a PLAN_ITEMS=()
 
+can_use_tty() {
+  [[ -r /dev/tty && -w /dev/tty ]] || return 1
+  : > /dev/tty 2>/dev/null || return 1
+  return 0
+}
+
 bind_stdin_to_tty() {
-  if [[ -r /dev/tty ]]; then
-    exec </dev/tty 2>/dev/null || true
+  if can_use_tty; then
+    exec </dev/tty
   fi
 }
 
 prompt_yesno() {
   local var="$1" default="$2" msg="$3"
   local val d="$default"
-  if [[ -r /dev/tty && -w /dev/tty ]]; then
+  if can_use_tty; then
     printf '%s [%s] (y/n): ' "$msg" "$d" > /dev/tty
     IFS= read -r val < /dev/tty
   else
@@ -52,7 +58,7 @@ prompt_yesno() {
 prompt_text() {
   local var="$1" msg="$2"
   local val
-  if [[ -r /dev/tty && -w /dev/tty ]]; then
+  if can_use_tty; then
     printf '%s: ' "$msg" > /dev/tty
     IFS= read -r val < /dev/tty
   else
