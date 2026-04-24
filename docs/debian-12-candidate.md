@@ -1,43 +1,39 @@
-# Debian 12 Candidate Platform
+# Debian 12 Supported Platform
 
-This document defines the initial path for validating Debian 12 as a candidate platform.
+This document records the supported validation baseline for Debian 12.
 
-Ubuntu remains the supported and validated baseline. Debian 12 is not promoted to fully supported until the required VM profiles produce successful artifacts.
+Debian 12 is supported for this repository alongside Ubuntu 22.04, Ubuntu 24.04, and Debian 13.
 
 ## Current Status
 
-Status: candidate
+Status: supported
 
 Target release:
 
 - Debian 12 `bookworm`
 
-Current validation evidence:
+Validation evidence retained:
 
 - `smoke`: passed with artifact `status: "success"`
 - `core`: passed with artifact `status: "success"`
 - `full`: passed with artifact `status: "success"`
-- `full-rollback`: pending
-- `full-clean`: pending
+- `full-rollback`: passed with artifact `status: "success"`
+- `full-clean`: passed with artifact `status: "success"`
 
-Why Debian 12 first:
+Interpretation:
 
-- it is close to the Ubuntu/Debian package and service model already used by this repository
-- it uses `apt-get` and `dpkg`
-- it normally uses `systemd`
-- package names for key host dependencies are expected to be close to Ubuntu
+- Debian 12 is validated for bootstrap, strict validation convergence, rollback, and destructive cleanup
+- Debian 12 should be treated as a supported platform, not as a candidate
 
 ## Scope
 
-The first goal is to validate Debian 12 as a VM target, not as a Windows/macOS/native host target.
-
-The target model is:
+The validated model is:
 
 - host: any machine capable of running Multipass
 - VM guest: Debian 12 cloud image
 - scripts: executed inside the Debian 12 VM
 
-## What Changed For Candidate Testing
+## Harness Defaults
 
 The VM harness supports:
 
@@ -57,17 +53,18 @@ These values can be overridden:
 ./tests/test-in-vm.sh --platform debian12 --image <image-or-url> --remote-user <user> --remote-dir <path>
 ```
 
-The bootstrap also detects the host OS through `/etc/os-release`.
+The bootstrap detects the host OS through `/etc/os-release`.
 
 Current behavior:
 
-- Ubuntu: supported baseline
-- Debian 12: candidate
+- Ubuntu: supported
+- Debian 12: supported
+- Debian 13: supported
 - anything else: unsupported
 
-## Validation Sequence
+## Supported Validation Sequence
 
-Run the candidate validation in this order.
+Reference commands:
 
 ### 1. Smoke
 
@@ -75,25 +72,11 @@ Run the candidate validation in this order.
 ./tests/test-in-vm.sh --platform debian12 --image https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2 --profile smoke
 ```
 
-Expected:
-
-- VM launches
-- repository transfers
-- bootstrap dry-run starts
-- artifact records `status: "success"`
-
 ### 2. Core
 
 ```bash
 ./tests/test-in-vm.sh --platform debian12 --image https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2 --profile core
 ```
-
-Expected:
-
-- `k3s` installs
-- `helm` installs
-- non-strict validation completes
-- artifact records `status: "success"`
 
 ### 3. Full
 
@@ -101,25 +84,11 @@ Expected:
 ./tests/test-in-vm.sh --platform debian12 --image https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2 --profile full
 ```
 
-Expected:
-
-- full stack installs
-- strict validation converges
-- artifact records `status: "success"`
-
 ### 4. Full Rollback
 
 ```bash
 ./tests/test-in-vm.sh --platform debian12 --image https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2 --profile full-rollback
 ```
-
-Expected:
-
-- full stack installs
-- rollback plan is generated
-- rollback apply completes
-- target namespaces and resources are removed
-- artifact records `status: "success"`
 
 ### 5. Full Clean
 
@@ -127,16 +96,9 @@ Expected:
 ./tests/test-in-vm.sh --platform debian12 --image https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2 --profile full-clean
 ```
 
-Expected:
-
-- full stack installs
-- destructive cleanup completes
-- `k3s` is no longer active
-- artifact records `status: "success"`
-
 ## Artifact Review
 
-Check recent Debian candidate artifacts:
+Check Debian 12 artifacts:
 
 ```bash
 ls -1t test-artifacts/*debian12*.json | head
@@ -145,54 +107,7 @@ jq '{status, profile, platform, image, remote_user, remote_dir, vm_name}' test-a
 
 Pass criteria:
 
-- every required profile must have `status: "success"`
-- every required profile must have `platform: "debian12"`
+- each supported profile has `status: "success"`
+- each supported profile has `platform: "debian12"`
 
-Do not use `*-bootstrap-manifest.json` as the primary pass/fail signal. Use the `test-in-vm-*.json` test result artifact.
-
-## Known Risk Areas
-
-Debian 12 is expected to be close to Ubuntu, but the following areas must be verified empirically:
-
-- Multipass behavior with Debian cloud images
-- default cloud user and SSH access
-- `multipass transfer` into the Debian VM
-- `open-iscsi` package and `iscsid` service behavior
-- NFS package and service behavior
-- Longhorn dependencies
-- Rancher/Fleet startup timing
-- cleanup of CNI interfaces and k3s runtime state
-
-## Promotion Criteria
-
-Debian 12 should remain candidate until the following profiles pass and artifacts are retained:
-
-1. `smoke`
-2. `core`
-3. `full`
-4. `full-rollback`
-5. `full-clean`
-
-After those pass, update this document and the main README to move Debian 12 from candidate to supported.
-
-## Fallbacks During Validation
-
-If the default Debian image does not work with Multipass on a given host, try an explicit image override:
-
-```bash
-./tests/test-in-vm.sh --platform debian12 --image <debian-cloud-image-url> --profile smoke
-```
-
-If the default user is not `debian`, override it:
-
-```bash
-./tests/test-in-vm.sh --platform debian12 --remote-user <user> --profile smoke
-```
-
-If the remote home directory differs:
-
-```bash
-./tests/test-in-vm.sh --platform debian12 --remote-dir /tmp/productive-k3s --profile smoke
-```
-
-Using `/tmp/productive-k3s` is acceptable for test validation if the cloud image user/home layout is different from the expected default.
+Use the `test-in-vm-*.json` artifact as the authoritative pass/fail signal.

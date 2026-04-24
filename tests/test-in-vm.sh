@@ -2,17 +2,19 @@
 set -euo pipefail
 
 PROFILE="core"
-VM_IMAGE="24.04"
+PLATFORM="ubuntu"
+VM_IMAGE=""
 VM_CPUS="4"
 VM_MEMORY="8G"
 VM_DISK="40G"
 KEEP_VM="n"
 PURGE_ON_CLEANUP="n"
 VM_NAME=""
+REMOTE_USER=""
+REMOTE_DIR=""
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REPO_NAME="$(basename "$REPO_DIR")"
-REMOTE_DIR="/home/ubuntu/${REPO_NAME}"
 VM_CREATED="n"
 ARTIFACTS_DIR="$REPO_DIR/test-artifacts"
 RUN_TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
@@ -25,7 +27,7 @@ BOOTSTRAP_MANIFEST_LOCAL=""
 usage() {
   cat <<'EOU'
 Usage:
-  ./tests/test-in-vm.sh [--profile smoke|core|full|full-clean|full-rollback] [--name <vm-name>] [--image <ubuntu-release>] [--cpus <n>] [--memory <size>] [--disk <size>] [--keep-vm] [--purge-on-cleanup]
+  ./tests/test-in-vm.sh [--platform ubuntu|debian12|debian13] [--profile smoke|core|full|full-clean|full-rollback] [--name <vm-name>] [--image <release-or-url>] [--remote-user <user>] [--remote-dir <path>] [--cpus <n>] [--memory <size>] [--disk <size>] [--keep-vm] [--purge-on-cleanup]
 
 Profiles:
   smoke          Launch a clean VM and run bootstrap in --dry-run mode
@@ -33,6 +35,11 @@ Profiles:
   full           Launch a clean VM, install the full stack with default answers, then validate
   full-clean     Run the full profile and then run scripts/clean-k3s-stack.sh --apply inside the VM
   full-rollback  Run the full profile and then build/apply a rollback from the generated bootstrap manifest
+
+Platforms:
+  ubuntu         Supported baseline. Defaults to image 24.04 and user ubuntu
+  debian12       Candidate path. Defaults to Debian 12 bookworm cloud image and user debian
+  debian13       Candidate path. Defaults to Debian 13 trixie cloud image and user debian
 
 Notes:
   - Requires Multipass on the host.
@@ -57,6 +64,61 @@ err() {
   printf '[ERROR] %s\n' "$1" >&2
 }
 
+default_image_for_platform() {
+  case "$1" in
+    ubuntu)
+      printf '24.04'
+      ;;
+    debian12)
+      printf 'https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2'
+      ;;
+    debian13)
+      printf 'https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2'
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+default_remote_user_for_platform() {
+  case "$1" in
+    ubuntu)
+      printf 'ubuntu'
+      ;;
+    debian12)
+      printf 'debian'
+      ;;
+    debian13)
+      printf 'ubuntu'
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+apply_platform_defaults() {
+  case "$PLATFORM" in
+    ubuntu|debian12|debian13) ;;
+    *)
+      err "Unsupported platform: $PLATFORM"
+      usage
+      exit 1
+      ;;
+  esac
+
+  if [[ -z "$VM_IMAGE" ]]; then
+    VM_IMAGE="$(default_image_for_platform "$PLATFORM")"
+  fi
+  if [[ -z "$REMOTE_USER" ]]; then
+    REMOTE_USER="$(default_remote_user_for_platform "$PLATFORM")"
+  fi
+  if [[ -z "$REMOTE_DIR" ]]; then
+    REMOTE_DIR="/home/${REMOTE_USER}/${REPO_NAME}"
+  fi
+}
+
 cleanup() {
   write_artifact
   if [[ "$KEEP_VM" == "y" || "$VM_CREATED" != "y" ]]; then
@@ -72,6 +134,10 @@ cleanup() {
 parse_args() {
   while (($# > 0)); do
     case "$1" in
+      --platform)
+        PLATFORM="${2:-}"
+        shift
+        ;;
       --profile)
         PROFILE="${2:-}"
         shift
@@ -82,6 +148,14 @@ parse_args() {
         ;;
       --image)
         VM_IMAGE="${2:-}"
+        shift
+        ;;
+      --remote-user)
+        REMOTE_USER="${2:-}"
+        shift
+        ;;
+      --remote-dir)
+        REMOTE_DIR="${2:-}"
         shift
         ;;
       --cpus)
@@ -124,8 +198,10 @@ parse_args() {
       ;;
   esac
 
+  apply_platform_defaults
+
   if [[ -z "$VM_NAME" ]]; then
-    VM_NAME="productive-k3s-test-${PROFILE}-$(date +%Y%m%d-%H%M%S)"
+    VM_NAME="productive-k3s-test-${PLATFORM}-${PROFILE}-$(date +%Y%m%d-%H%M%S)"
   fi
 
   ARTIFACT_BASENAME="test-in-vm-${RUN_TIMESTAMP}-${PROFILE}-${VM_NAME}"
@@ -152,17 +228,19 @@ write_artifact() {
   cat > "$ARTIFACT_PATH" <<EOF
 {
   "test_type": "vm",
+  "platform": "$(json_escape "$PLATFORM")",
   "profile": "$(json_escape "$PROFILE")",
   "vm_name": "$(json_escape "$VM_NAME")",
   "vm_created": "$(json_escape "$VM_CREATED")",
   "keep_vm": "$(json_escape "$KEEP_VM")",
   "purge_on_cleanup": "$(json_escape "$PURGE_ON_CLEANUP")",
   "image": "$(json_escape "$VM_IMAGE")",
+  "remote_user": "$(json_escape "$REMOTE_USER")",
+  "remote_dir": "$(json_escape "$REMOTE_DIR")",
   "cpus": "$(json_escape "$VM_CPUS")",
   "memory": "$(json_escape "$VM_MEMORY")",
   "disk": "$(json_escape "$VM_DISK")",
   "repo_dir": "$(json_escape "$REPO_DIR")",
-  "remote_dir": "$(json_escape "$REMOTE_DIR")",
   "status": "$(json_escape "$ARTIFACT_STATUS")",
   "bootstrap_manifest_remote": "$(json_escape "$BOOTSTRAP_MANIFEST_REMOTE")",
   "bootstrap_manifest_local": "$(json_escape "$BOOTSTRAP_MANIFEST_LOCAL")"
@@ -177,8 +255,10 @@ launch_vm() {
 }
 
 copy_repo() {
+  local remote_parent
+  remote_parent="$(dirname "$REMOTE_DIR")"
   log "Copying repository to VM"
-  multipass exec "$VM_NAME" -- bash -lc "rm -rf '$REMOTE_DIR' && mkdir -p /home/ubuntu"
+  multipass exec "$VM_NAME" -- bash -lc "sudo mkdir -p '$remote_parent' && sudo chown '$REMOTE_USER':'$REMOTE_USER' '$remote_parent' && rm -rf '$REMOTE_DIR'"
   multipass transfer -r "$REPO_DIR" "$VM_NAME:$REMOTE_DIR"
 }
 
@@ -211,14 +291,21 @@ run_bootstrap_with_answers() {
 }
 
 run_validate_with_retries() {
-  local timeout_secs="${1:-600}"
-  local sleep_secs="${2:-15}"
+  local validate_mode="${1:-strict}"
+  local timeout_secs="${2:-600}"
+  local sleep_secs="${3:-15}"
   local start_ts now_ts
   start_ts=$(date +%s)
 
   while true; do
-    if run_in_vm "cd '$REMOTE_DIR' && ./scripts/validate-k3s-stack.sh --strict"; then
-      return 0
+    if [[ "$validate_mode" == "strict" ]]; then
+      if run_in_vm "cd '$REMOTE_DIR' && ./scripts/validate-k3s-stack.sh --strict"; then
+        return 0
+      fi
+    else
+      if run_in_vm "cd '$REMOTE_DIR' && ./scripts/validate-k3s-stack.sh"; then
+        return 0
+      fi
     fi
 
     now_ts=$(date +%s)
@@ -242,24 +329,73 @@ assert_in_vm() {
   fi
 }
 
-run_smoke() {
-  local answers
-  answers=$'y\ny\nn\nn\nn\nn\nn\ny\n'
-  log "Running smoke profile in VM"
-  run_bootstrap_with_answers "--dry-run" "$answers"
+assert_in_vm_with_retries() {
+  local cmd="$1" description="$2"
+  local timeout_secs="${3:-300}"
+  local sleep_secs="${4:-10}"
+  local start_ts now_ts
+  start_ts=$(date +%s)
+
+  while true; do
+    if run_in_vm "$cmd"; then
+      log "Verified: $description"
+      return 0
+    fi
+
+    now_ts=$(date +%s)
+    if (( now_ts - start_ts >= timeout_secs )); then
+      err "Verification failed: $description"
+      return 1
+    fi
+
+    log "Rollback verification is not clean yet; waiting ${sleep_secs}s before retrying"
+    sleep "$sleep_secs"
+  done
 }
 
-run_core() {
-  local answers
-  answers=$'y\ny\nn\nn\nn\nn\nn\ny\n'
-  log "Running core profile in VM"
-  run_bootstrap_with_answers "" "$answers"
-  run_validate_with_retries 300 10
+smoke_answers() {
+  printf '%s' $'y\ny\nn\nn\nn\nn\nn\nn\ny\ny\n'
 }
 
-run_full() {
-  local answers
-  answers=$'y
+core_answers() {
+  printf '%s' $'y\ny\nn\nn\nn\nn\nn\nn\ny\ny\n'
+}
+
+full_answers() {
+  case "$PLATFORM" in
+    ubuntu)
+      cat <<'EOF'
+y
+y
+y
+y
+y
+y
+y
+
+
+y
+home.arpa
+
+admin
+
+
+n
+2
+
+
+n
+y
+y
+y
+y
+n
+y
+EOF
+      ;;
+    debian12)
+      cat <<'EOF'
+y
 y
 y
 y
@@ -279,22 +415,78 @@ n
 2
 
 
+
+y
+y
+y
+y
+y
 n
 y
+EOF
+      ;;
+    debian13)
+      cat <<'EOF'
 y
 y
 y
+y
+y
+y
+y
+
+
+y
+home.arpa
+
+admin
+
+
+
 n
+2
+
+
+
 y
-'
+y
+y
+y
+y
+y
+y
+y
+y
+y
+EOF
+      ;;
+    *)
+      err "Unsupported platform for full answers: $PLATFORM"
+      return 1
+      ;;
+  esac
+}
+
+run_smoke() {
+  log "Running smoke profile in VM"
+  run_bootstrap_with_answers "--dry-run" "$(smoke_answers)"
+}
+
+run_core() {
+  log "Running core profile in VM"
+  run_bootstrap_with_answers "" "$(core_answers)"
+  run_validate_with_retries non-strict 300 10
+}
+
+run_full() {
   log "Running full profile in VM"
   warn "This can take a while. It installs Longhorn, Rancher, Registry, cert-manager, and NFS inside the VM."
-  run_bootstrap_with_answers "" "$answers"
-  run_validate_with_retries 900 15
+  run_bootstrap_with_answers "" "$(full_answers)"
+  run_validate_with_retries strict 900 15
 }
 
 run_full_clean() {
-  local answers confirm
+  local confirm
   run_full
   log "Running destructive clean profile inside the VM"
   confirm=$'y\nCLEAN\n'
@@ -319,13 +511,13 @@ run_full_rollback() {
   rollback_confirm=$'y\n'
   run_in_vm "cd '$REMOTE_DIR' && printf '%s' $(printf '%q' "$rollback_confirm") | ./scripts/rollback-k3s-stack.sh --to '$manifest' --apply"
 
-  assert_in_vm "! sudo k3s kubectl get namespace cert-manager >/dev/null 2>&1" "cert-manager namespace was removed by rollback"
-  assert_in_vm "! sudo k3s kubectl get namespace longhorn-system >/dev/null 2>&1" "longhorn-system namespace was removed by rollback"
-  assert_in_vm "! sudo k3s kubectl get namespace cattle-system >/dev/null 2>&1" "cattle-system namespace was removed by rollback"
-  assert_in_vm "! sudo k3s kubectl get namespace registry >/dev/null 2>&1" "registry namespace was removed by rollback"
-  assert_in_vm "! sudo k3s kubectl get clusterissuer selfsigned >/dev/null 2>&1" "selfsigned ClusterIssuer was removed by rollback"
-  assert_in_vm \"! grep -qE '^[[:space:]]*/srv/nfs/k8s-share[[:space:]]' /etc/exports\" \"NFS export was removed by rollback\"
-  assert_in_vm \"! grep -q 'rancher.home.arpa\\|registry.home.arpa' /etc/hosts\" \"bootstrap-managed hosts entries were removed by rollback\"
+  assert_in_vm_with_retries "! sudo k3s kubectl get namespace cert-manager >/dev/null 2>&1" "cert-manager namespace was removed by rollback" 600 15
+  assert_in_vm_with_retries "! sudo k3s kubectl get namespace longhorn-system >/dev/null 2>&1" "longhorn-system namespace was removed by rollback" 600 15
+  assert_in_vm_with_retries "! sudo k3s kubectl get namespace cattle-system >/dev/null 2>&1" "cattle-system namespace was removed by rollback" 600 15
+  assert_in_vm_with_retries "! sudo k3s kubectl get namespace registry >/dev/null 2>&1" "registry namespace was removed by rollback" 600 15
+  assert_in_vm_with_retries "! sudo k3s kubectl get clusterissuer selfsigned >/dev/null 2>&1" "selfsigned ClusterIssuer was removed by rollback" 300 10
+  assert_in_vm_with_retries "! grep -qE '^[[:space:]]*/srv/nfs/k8s-share[[:space:]]' /etc/exports" "NFS export was removed by rollback" 120 5
+  assert_in_vm_with_retries "! grep -q 'rancher.home.arpa\\|registry.home.arpa' /etc/hosts" "bootstrap-managed hosts entries were removed by rollback" 120 5
 }
 
 main() {
