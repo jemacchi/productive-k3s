@@ -21,15 +21,22 @@ err(){ printf "\n%s[ERROR]%s %s\n" "$COLOR_RED" "$COLOR_RESET" "$*"; }
 MODE="plan"
 MANIFEST=""
 SUDO_KA_PID=""
+AUTO_APPROVE="n"
 declare -a PLAN_IDS=()
 declare -A PLAN_DESCRIPTIONS=()
 declare -A PLAN_SAFETY=()
 declare -A PLAN_APPLY_KIND=()
 
+can_use_tty() {
+  [[ -t 0 && -t 1 && -r /dev/tty && -w /dev/tty ]] || return 1
+  : > /dev/tty 2>/dev/null || return 1
+  return 0
+}
+
 prompt_yesno() {
   local var="$1" default="$2" msg="$3"
   local val d="$default"
-  if [[ -r /dev/tty && -w /dev/tty ]]; then
+  if can_use_tty; then
     printf '%s [%s] (y/n): ' "$msg" "$d" > /dev/tty
     IFS= read -r val < /dev/tty
   else
@@ -45,7 +52,7 @@ prompt_yesno() {
 }
 
 bind_stdin_to_tty() {
-  if [[ -r /dev/tty ]]; then
+  if can_use_tty; then
     exec </dev/tty
   fi
 }
@@ -90,12 +97,13 @@ delete_named_resources_matching() {
 usage() {
   cat <<'EOF'
 Usage:
-  ./scripts/rollback-k3s-stack.sh --to runs/bootstrap-...json [--plan|--apply]
+  ./scripts/rollback-k3s-stack.sh --to runs/bootstrap-...json [--plan|--apply] [--yes]
 
 Options:
   --to <file>   Bootstrap run manifest JSON to evaluate
   --plan        Show the rollback plan only (default)
   --apply       Execute the safe rollback actions derived from the manifest
+  --yes         Auto-approve apply without prompting
   -h, --help    Show this help
 
 Notes:
@@ -117,6 +125,9 @@ parse_args() {
         ;;
       --apply)
         MODE="apply"
+        ;;
+      --yes)
+        AUTO_APPROVE="y"
         ;;
       -h|--help)
         usage
@@ -455,7 +466,11 @@ apply_plan() {
   fi
 
   local confirm
-  prompt_yesno confirm "n" "Apply the safe rollback actions from this manifest?"
+  if [[ "$AUTO_APPROVE" == "y" ]]; then
+    confirm="y"
+  else
+    prompt_yesno confirm "n" "Apply the safe rollback actions from this manifest?"
+  fi
   [[ "$confirm" == "y" ]] || { warn "Rollback cancelled."; exit 0; }
 
   bind_stdin_to_tty

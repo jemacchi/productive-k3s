@@ -8,9 +8,7 @@ SUMMARY_JSON="${ARTIFACTS_DIR}/hosted-validation-summary.json"
 HOST_FULL_LOG="${ARTIFACTS_DIR}/hosted-bootstrap-full.log"
 HOST_VALIDATE_LOG="${ARTIFACTS_DIR}/hosted-validate-strict.log"
 HOST_CLEAN_LOG="${ARTIFACTS_DIR}/hosted-clean.log"
-DOCKER_SMOKE_LOG="${ARTIFACTS_DIR}/docker-smoke.log"
 RUN_TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
-DOCKER_SMOKE_STATUS="not-run"
 HOST_BOOTSTRAP_STATUS="not-run"
 HOST_VALIDATE_STATUS="not-run"
 HOST_CLEAN_STATUS="not-run"
@@ -54,13 +52,11 @@ write_summary() {
   "status": "$(json_escape "$OVERALL_STATUS")",
   "checks": {
     "shell_syntax": "success",
-    "docker_smoke": "$(json_escape "$DOCKER_SMOKE_STATUS")",
     "host_bootstrap_full": "$(json_escape "$HOST_BOOTSTRAP_STATUS")",
     "host_validate_strict": "$(json_escape "$HOST_VALIDATE_STATUS")",
     "host_clean": "$(json_escape "$HOST_CLEAN_STATUS")"
   },
   "artifacts": {
-    "docker_smoke_log": "$(json_escape "$DOCKER_SMOKE_LOG")",
     "host_bootstrap_full_log": "$(json_escape "$HOST_FULL_LOG")",
     "host_validate_strict_log": "$(json_escape "$HOST_VALIDATE_LOG")",
     "host_clean_log": "$(json_escape "$HOST_CLEAN_LOG")",
@@ -84,16 +80,6 @@ cleanup_and_write_summary() {
   fi
   write_summary
   exit "$exit_code"
-}
-
-run_with_log() {
-  local log_path="$1"
-  shift
-  set +e
-  "$@" > >(tee "$log_path") 2>&1
-  local rc=$?
-  set -e
-  return "$rc"
 }
 
 run_validate_with_retries() {
@@ -129,21 +115,15 @@ main() {
   trap 'cleanup_and_write_summary $?' EXIT
 
   need_cmd bash
-  need_cmd docker
   need_cmd jq
 
   cd "$REPO_DIR"
 
   echo "[INFO] Checking shell syntax"
   bash -n scripts/bootstrap-k3s-stack.sh
-  bash -n tests/test-in-docker.sh
   bash -n tests/test-in-vm.sh
   bash -n scripts/rollback-k3s-stack.sh
   bash -n scripts/clean-k3s-stack.sh
-
-  echo "[INFO] Running Docker smoke harness"
-  run_with_log "$DOCKER_SMOKE_LOG" bash ./tests/test-in-docker.sh
-  DOCKER_SMOKE_STATUS="success"
 
   echo "[INFO] Running hosted full bootstrap on ubuntu-24.04"
   local answers

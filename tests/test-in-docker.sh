@@ -2,13 +2,14 @@
 set -euo pipefail
 
 IMAGE_TAG="productive-k3s:test"
+BASE_IMAGE="ubuntu:24.04"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 usage() {
   cat <<'EOU'
 Usage:
-  ./tests/test-in-docker.sh [--image-tag <tag>]
+  ./tests/test-in-docker.sh [--image-tag <tag>] [--base-image <image>]
 
 What it does:
   - build the test image
@@ -26,6 +27,10 @@ parse_args() {
     case "$1" in
       --image-tag)
         IMAGE_TAG="${2:-}"
+        shift
+        ;;
+      --base-image)
+        BASE_IMAGE="${2:-}"
         shift
         ;;
       -h|--help)
@@ -58,8 +63,9 @@ main() {
   need_cmd docker || { echo "docker is required" >&2; exit 1; }
 
   echo "[INFO] Building test image: $IMAGE_TAG"
+  echo "[INFO] Base image: $BASE_IMAGE"
   cd "$REPO_DIR"
-  docker build -f tests/Dockerfile.test -t "$IMAGE_TAG" .
+  docker build --build-arg BASE_IMAGE="$BASE_IMAGE" -f tests/Dockerfile.test -t "$IMAGE_TAG" .
 
   echo "[INFO] Running smoke test"
   run_smoke

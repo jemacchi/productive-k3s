@@ -19,9 +19,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ubuntu-24-04:
+  smoke-matrix:
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false }}
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: ubuntu-24-04
+            label: Ubuntu 24.04
+            base_image: ubuntu:24.04
+          - id: ubuntu-22-04
+            label: Ubuntu 22.04
+            base_image: ubuntu:22.04
+          - id: debian-12
+            label: Debian 12
+            base_image: debian:12
+          - id: debian-13
+            label: Debian 13
+            base_image: debian:13
 
     steps:
       - name: Check out repository
@@ -32,6 +48,38 @@ jobs:
         run: |
           set -euo pipefail
           docker version
+
+      - name: Run containerized smoke for ${{ matrix.label }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p test-artifacts
+          bash ./tests/test-in-docker.sh \
+            --image-tag productive-k3s:test-${{ matrix.id }} \
+            --base-image ${{ matrix.base_image }} \
+            | tee test-artifacts/docker-smoke-${{ matrix.id }}.log
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-${{ matrix.id }}
+          path: test-artifacts/docker-smoke-${{ matrix.id }}.log
+          retention-days: 14
+
+  hosted-full-ubuntu-24-04:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false }}
+    needs: smoke-matrix
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify required tools
+        shell: bash
+        run: |
+          set -euo pipefail
           jq --version
 
       - name: Run hosted validation
@@ -50,7 +98,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: hosted-validation-ubuntu-24.04
+          name: hosted-full-ubuntu-24.04
           path: |
             test-artifacts/
             runs/

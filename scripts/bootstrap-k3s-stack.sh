@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Incremental k3s stack bootstrap for Ubuntu and candidate Debian targets
+# Incremental k3s stack bootstrap for Ubuntu and supported Debian targets
 # - Detects existing installations first
 # - Prompts before each change
 # - Leaves existing cluster components untouched by default
@@ -92,7 +92,7 @@ detect_host_platform() {
       PLATFORM_SUPPORT="supported"
       ;;
     debian:12|debian:13)
-      PLATFORM_SUPPORT="candidate"
+      PLATFORM_SUPPORT="supported"
       ;;
     *)
       PLATFORM_SUPPORT="unsupported"
@@ -1615,11 +1615,8 @@ main() {
   case "$PLATFORM_SUPPORT" in
     supported)
       ;;
-    candidate)
-      warn "Platform support: Debian ${OS_VERSION_ID} candidate. This path is intended for validation and may need fixes before being promoted to supported."
-      ;;
     *)
-      warn "Platform support: unsupported. Ubuntu is the supported baseline; Debian 12 and Debian 13 are the current candidate paths."
+      warn "Platform support: unsupported. Supported platforms are Ubuntu, Debian 12, and Debian 13."
       ;;
   esac
 
