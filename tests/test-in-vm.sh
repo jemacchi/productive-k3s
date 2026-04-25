@@ -38,8 +38,8 @@ Profiles:
 
 Platforms:
   ubuntu         Supported baseline. Defaults to image 24.04 and user ubuntu
-  debian12       Candidate path. Defaults to Debian 12 bookworm cloud image and user debian
-  debian13       Candidate path. Defaults to Debian 13 trixie cloud image and user debian
+  debian12       Supported path. Defaults to Debian 12 bookworm cloud image and user ubuntu
+  debian13       Supported path. Defaults to Debian 13 trixie cloud image and user ubuntu
 
 Notes:
   - Requires Multipass on the host.
@@ -87,7 +87,7 @@ default_remote_user_for_platform() {
       printf 'ubuntu'
       ;;
     debian12)
-      printf 'debian'
+      printf 'ubuntu'
       ;;
     debian13)
       printf 'ubuntu'
@@ -362,71 +362,7 @@ core_answers() {
 }
 
 full_answers() {
-  case "$PLATFORM" in
-    ubuntu)
-      cat <<'EOF'
-y
-y
-y
-y
-y
-y
-y
-
-
-y
-home.arpa
-
-admin
-
-
-n
-2
-
-
-n
-y
-y
-y
-y
-n
-y
-EOF
-      ;;
-    debian12)
-      cat <<'EOF'
-y
-y
-y
-y
-y
-y
-y
-
-
-y
-home.arpa
-
-admin
-
-
-
-n
-2
-
-
-
-y
-y
-y
-y
-y
-n
-y
-EOF
-      ;;
-    debian13)
-      cat <<'EOF'
+  cat <<'EOF'
 y
 y
 y
@@ -459,12 +395,6 @@ y
 y
 y
 EOF
-      ;;
-    *)
-      err "Unsupported platform for full answers: $PLATFORM"
-      return 1
-      ;;
-  esac
 }
 
 run_smoke() {
@@ -486,16 +416,14 @@ run_full() {
 }
 
 run_full_clean() {
-  local confirm
   run_full
   log "Running destructive clean profile inside the VM"
-  confirm=$'y\nCLEAN\n'
-  run_in_vm "cd '$REMOTE_DIR' && printf '%s' $(printf '%q' "$confirm") | ./scripts/clean-k3s-stack.sh --apply"
+  run_in_vm "cd '$REMOTE_DIR' && ./scripts/clean-k3s-stack.sh --apply --yes --confirm-clean"
   assert_in_vm "systemctl is-active --quiet k3s && exit 1 || exit 0" "k3s service is no longer active after clean"
 }
 
 run_full_rollback() {
-  local manifest rollback_confirm
+  local manifest
   run_full
 
   manifest="$(run_in_vm "cd '$REMOTE_DIR' && ls -1t runs/bootstrap-*.json 2>/dev/null | head -1" | tr -d '\r')"
@@ -508,8 +436,7 @@ run_full_rollback() {
   run_in_vm "cd '$REMOTE_DIR' && ./scripts/rollback-k3s-stack.sh --to '$manifest' --plan"
 
   log "Applying rollback inside the VM"
-  rollback_confirm=$'y\n'
-  run_in_vm "cd '$REMOTE_DIR' && printf '%s' $(printf '%q' "$rollback_confirm") | ./scripts/rollback-k3s-stack.sh --to '$manifest' --apply"
+  run_in_vm "cd '$REMOTE_DIR' && ./scripts/rollback-k3s-stack.sh --to '$manifest' --apply --yes"
 
   assert_in_vm_with_retries "! sudo k3s kubectl get namespace cert-manager >/dev/null 2>&1" "cert-manager namespace was removed by rollback" 600 15
   assert_in_vm_with_retries "! sudo k3s kubectl get namespace longhorn-system >/dev/null 2>&1" "longhorn-system namespace was removed by rollback" 600 15

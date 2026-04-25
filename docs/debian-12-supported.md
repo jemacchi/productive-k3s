@@ -44,8 +44,8 @@ The VM harness supports:
 When `--platform debian12` is used, the harness defaults to:
 
 - image: `https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2`
-- remote user: `debian`
-- remote directory: `/home/debian/productive-k3s`
+- remote user: `ubuntu`
+- remote directory: `/home/ubuntu/productive-k3s`
 
 These values can be overridden:
 

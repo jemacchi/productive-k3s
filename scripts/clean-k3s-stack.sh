@@ -20,13 +20,15 @@ err(){ printf "\n%s[ERROR]%s %s\n" "$COLOR_RED" "$COLOR_RESET" "$*"; }
 
 MODE="plan"
 SUDO_KA_PID=""
+AUTO_APPROVE="n"
+FORCE_CONFIRM="n"
 DEFAULT_NFS_EXPORT="/srv/nfs/k8s-share"
 DEFAULT_REGISTRY_HOST="registry.home.arpa"
 DEFAULT_RANCHER_HOST="rancher.home.arpa"
 declare -a PLAN_ITEMS=()
 
 can_use_tty() {
-  [[ -r /dev/tty && -w /dev/tty ]] || return 1
+  [[ -t 0 && -t 1 && -r /dev/tty && -w /dev/tty ]] || return 1
   : > /dev/tty 2>/dev/null || return 1
   return 0
 }
@@ -89,11 +91,15 @@ service_active() { systemctl is-active --quiet "$1"; }
 usage() {
   cat <<'EOF'
 Usage:
-  ./scripts/clean-k3s-stack.sh [--plan|--apply]
+  ./scripts/clean-k3s-stack.sh [--plan|--apply] [--yes] [--confirm-clean]
 
 Modes:
   --plan   Show what would be removed (default)
   --apply  Apply the destructive cleanup
+
+Options:
+  --yes            Auto-approve the yes/no cleanup prompt
+  --confirm-clean  Auto-approve the typed CLEAN confirmation
 
 What it removes:
   - k3s cluster components and local k3s state
@@ -121,6 +127,12 @@ parse_args() {
       --apply)
         MODE="apply"
         ;;
+      --yes)
+        AUTO_APPROVE="y"
+        ;;
+      --confirm-clean)
+        FORCE_CONFIRM="y"
+        ;;
       -h|--help)
         usage
         exit 0
@@ -141,11 +153,11 @@ clusterissuer_exists() { kubectl_k3s get clusterissuer "$1" >/dev/null 2>&1; }
 
 delete_named_resources_matching() {
   local resource="$1" pattern="$2"
-  kubectl_k3s get "$resource" -o name 2>/dev/null | grep -E "$pattern" | while read -r name; do
+  while read -r name; do
     [[ -n "$name" ]] || continue
     log "Deleting ${name}"
     kubectl_k3s delete "$name" --ignore-not-found --wait=false || true
-  done
+  done < <(kubectl_k3s get "$resource" -o name 2>/dev/null | grep -E "$pattern" || true)
 }
 
 delete_rancher_cluster_artifacts() {
@@ -266,10 +278,18 @@ apply_cleanup() {
   local confirm typed
 
   print_warning_block
-  prompt_yesno confirm "n" "Apply the full destructive cleanup?"
+  if [[ "$AUTO_APPROVE" == "y" ]]; then
+    confirm="y"
+  else
+    prompt_yesno confirm "n" "Apply the full destructive cleanup?"
+  fi
   [[ "$confirm" == "y" ]] || { warn "Cleanup cancelled."; exit 0; }
 
-  prompt_text typed "Type CLEAN to continue"
+  if [[ "$FORCE_CONFIRM" == "y" ]]; then
+    typed="CLEAN"
+  else
+    prompt_text typed "Type CLEAN to continue"
+  fi
   [[ "$typed" == "CLEAN" ]] || { warn "Cleanup cancelled because confirmation text did not match."; exit 0; }
 
   sudo_keepalive

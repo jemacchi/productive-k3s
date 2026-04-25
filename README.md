@@ -67,8 +67,8 @@ Platform notes:
 
 Platform-specific validation notes:
 
-- [Debian 13 supported platform](./docs/debian-13-candidate.md)
-- [Debian 12 supported platform](./docs/debian-12-candidate.md)
+- [Debian 13 supported platform](./docs/debian-13-supported.md)
+- [Debian 12 supported platform](./docs/debian-12-supported.md)
 
 ## Minimum Hardware
 
