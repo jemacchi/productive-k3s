@@ -249,9 +249,28 @@ EOF
 }
 
 launch_vm() {
+  local timeout_secs="300"
+  local sleep_secs="15"
+  local start_ts now_ts
+
   log "Launching VM: $VM_NAME"
-  multipass launch "$VM_IMAGE" --name "$VM_NAME" --cpus "$VM_CPUS" --memory "$VM_MEMORY" --disk "$VM_DISK"
-  VM_CREATED="y"
+  start_ts=$(date +%s)
+
+  while true; do
+    if multipass launch "$VM_IMAGE" --name "$VM_NAME" --cpus "$VM_CPUS" --memory "$VM_MEMORY" --disk "$VM_DISK"; then
+      VM_CREATED="y"
+      return 0
+    fi
+
+    now_ts=$(date +%s)
+    if (( now_ts - start_ts >= timeout_secs )); then
+      err "Failed to launch VM '${VM_NAME}' within ${timeout_secs}s"
+      return 1
+    fi
+
+    warn "VM launch did not succeed yet. Waiting ${sleep_secs}s before retrying."
+    sleep "$sleep_secs"
+  done
 }
 
 copy_repo() {
