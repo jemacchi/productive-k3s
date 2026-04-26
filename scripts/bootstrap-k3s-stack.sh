@@ -329,6 +329,36 @@ run_cmd() {
   "$@"
 }
 
+
+run_cmd_with_retries() {
+  local desc="$1"
+  local timeout_secs="$2"
+  local sleep_secs="$3"
+  shift 3
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    run_cmd "$desc" "$@"
+    return 0
+  fi
+
+  local start_ts now_ts
+  start_ts="$(date +%s)"
+
+  while true; do
+    if "$@"; then
+      return 0
+    fi
+
+    now_ts="$(date +%s)"
+    if (( now_ts - start_ts >= timeout_secs )); then
+      return 1
+    fi
+
+    warn "${desc} did not succeed yet. Waiting ${sleep_secs}s before retrying."
+    sleep "$sleep_secs"
+  done
+}
+
 run_shell() {
   local desc="$1" cmd="$2"
 
@@ -729,7 +759,7 @@ ensure_helm_repo() {
     return
   fi
 
-  if helm repo add "$name" "$url" >/dev/null 2>&1; then
+  if run_cmd_with_retries "Adding Helm repo ${name}" 120 5 helm repo add "$name" "$url" >/dev/null 2>&1; then
     return
   fi
 
@@ -1191,9 +1221,9 @@ install_longhorn_if_needed() {
 
   log "Installing Longhorn..."
   ensure_helm_repo longhorn https://charts.longhorn.io
-  run_cmd "Updating Helm repos for Longhorn" helm repo update
+  run_cmd_with_retries "Updating Helm repos for Longhorn" 180 10 helm repo update
   ensure_namespace longhorn-system
-  run_cmd "Installing Longhorn" helm install longhorn longhorn/longhorn \
+  run_cmd_with_retries "Installing Longhorn" 300 15 helm install longhorn longhorn/longhorn \
     --namespace longhorn-system \
     --set defaultSettings.defaultReplicaCount="${replica_count}" \
     --set defaultSettings.defaultDataPath="${longhorn_data_path}"
@@ -1281,7 +1311,7 @@ install_rancher_if_needed() {
   preflight_rancher_install "$rancher_host" || return
   log "Installing Rancher..."
   ensure_helm_repo rancher-latest https://releases.rancher.com/server-charts/latest
-  run_cmd "Updating Helm repos for Rancher" helm repo update
+  run_cmd_with_retries "Updating Helm repos for Rancher" 180 10 helm repo update
   ensure_namespace cattle-system
 
   if [[ "$tls_choice" == "2" ]] && ! secret_exists cattle-system rancher-tls; then
@@ -1316,7 +1346,7 @@ EOF
   fi
 
   if [[ "$tls_choice" == "1" ]]; then
-    run_cmd "Installing Rancher" helm install rancher rancher-latest/rancher \
+    run_cmd_with_retries "Installing Rancher" 300 15 helm install rancher rancher-latest/rancher \
       --namespace cattle-system \
       --set hostname="${rancher_host}" \
       --set bootstrapPassword="${admin_pass}" \
@@ -1324,7 +1354,7 @@ EOF
       --set letsEncrypt.email="${le_email}" \
       --set letsEncrypt.environment="${le_env}"
   else
-    run_cmd "Installing Rancher" helm install rancher rancher-latest/rancher \
+    run_cmd_with_retries "Installing Rancher" 300 15 helm install rancher rancher-latest/rancher \
       --namespace cattle-system \
       --set hostname="${rancher_host}" \
       --set bootstrapPassword="${admin_pass}" \
