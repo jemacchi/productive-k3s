@@ -43,7 +43,7 @@ Detailed rationale:
 
 ## Supported Platforms
 
-The repository is now validated and supported on these Linux host targets:
+The repository is now validated and supported on these Linux runtime targets:
 
 - Ubuntu `24.04` LTS
 - Ubuntu `22.04` LTS
@@ -64,6 +64,12 @@ Platform notes:
 - service management assumes `systemd`
 - VM-based integration testing is centered on `multipass`
 - Windows and macOS are not native bootstrap targets; they are only relevant as host environments capable of running Linux VMs
+
+Validation evidence model:
+
+- Ubuntu `24.04` has both direct hosted validation and VM-based validation coverage
+- Ubuntu `22.04`, Debian `12`, and Debian `13` are validated through the VM harness
+- Debian support in this repository refers to the Linux runtime inside the validated VM guest, not to GitHub-hosted direct-run CI
 
 Platform-specific validation notes:
 
