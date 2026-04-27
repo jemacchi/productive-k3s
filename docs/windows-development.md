@@ -5,19 +5,19 @@ This guide explains how a developer using Windows can work on this repository an
 The important model is:
 
 - Windows is the developer workstation and Multipass host.
-- The repository test harness launches an Ubuntu VM through Multipass.
-- The stack scripts run inside that Ubuntu VM.
+- The repository test harness launches a supported Linux VM through Multipass.
+- The stack scripts run inside that Linux VM.
 - The scripts are not intended to run directly on Windows.
 
 ## Support Statement
 
-This repository has been developed and validated against Ubuntu-based hosts and Ubuntu Multipass VMs.
+This repository has been developed and validated against Linux hosts and supported Linux Multipass VMs.
 
 For Windows developers, the supported target model is:
 
 - use Windows only as the host operating system
-- use Multipass to launch Ubuntu test VMs
-- run repository scripts inside those Ubuntu VMs through `tests/test-in-vm.sh`
+- use Multipass to launch supported Linux test VMs
+- run repository scripts inside those Linux VMs through `tests/test-in-vm.sh`
 
 Do not treat this as native Windows support.
 
@@ -147,7 +147,13 @@ After `smoke` and `core` pass:
 ./tests/test-in-vm.sh --platform ubuntu --image 24.04 --profile full-clean
 ```
 
-These profiles are slower and heavier. They install and validate the full stack in an Ubuntu VM.
+These profiles are slower and heavier. They install and validate the full stack in a supported Linux VM.
+
+The baseline examples in this guide use Ubuntu `24.04`, but the harness also supports:
+
+- Ubuntu `22.04`
+- Debian `12`
+- Debian `13`
 
 ## Selecting The Ubuntu VM Image
 
@@ -233,14 +239,15 @@ test-artifacts/
 The pass/fail source of truth is the test result artifact:
 
 ```bash
-test-artifacts/test-in-vm-*.json
+find test-artifacts -maxdepth 1 -type f -name 'test-in-vm-*.json' ! -name '*-bootstrap-manifest.json'
 ```
 
 Check recent results:
 
 ```bash
 ls -1t test-artifacts/*.json | head
-jq '{status, profile, image, vm_name}' test-artifacts/test-in-vm-*.json
+find test-artifacts -maxdepth 1 -type f -name 'test-in-vm-*.json' ! -name '*-bootstrap-manifest.json' -print0 \
+  | xargs -0 jq '{status, profile, image, vm_name}'
 ```
 
 Successful runs should show:
@@ -439,4 +446,4 @@ For a Windows contributor validating changes:
 
 This guide describes the intended Windows contributor workflow.
 
-The repository remains Ubuntu-first. Windows should be considered a supported developer host only for driving Ubuntu VM-based tests through Multipass, not as a native runtime target for the stack scripts.
+The repository remains Ubuntu-first in its examples and hosted CI. Windows should be considered a supported developer host only for driving supported Linux VM-based tests through Multipass, not as a native runtime target for the stack scripts.

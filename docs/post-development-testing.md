@@ -261,7 +261,7 @@ There are two different kinds of JSON files there, and they do not mean the same
 Pattern:
 
 ```bash
-test-artifacts/test-in-vm-*.json
+find test-artifacts -maxdepth 1 -type f -name 'test-in-vm-*.json' ! -name '*-bootstrap-manifest.json'
 ```
 
 Example:
@@ -283,7 +283,8 @@ Fields to check first:
 Quick check:
 
 ```bash
-jq '{status, profile, vm_name, bootstrap_manifest_local, bootstrap_manifest_remote}' test-artifacts/test-in-vm-*.json
+find test-artifacts -maxdepth 1 -type f -name 'test-in-vm-*.json' ! -name '*-bootstrap-manifest.json' -print0 \
+  | xargs -0 jq '{status, profile, vm_name, bootstrap_manifest_local, bootstrap_manifest_remote}'
 ```
 
 Pass criteria:

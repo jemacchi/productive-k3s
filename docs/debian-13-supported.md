@@ -101,8 +101,9 @@ Reference commands:
 Check Debian 13 artifacts:
 
 ```bash
-ls -1t test-artifacts/*debian13*.json | head
-jq '{status, profile, platform, image, remote_user, remote_dir, vm_name}' test-artifacts/*debian13*.json
+find test-artifacts -maxdepth 1 -type f -name 'test-in-vm-*debian13*.json' ! -name '*-bootstrap-manifest.json' | sort | tail
+find test-artifacts -maxdepth 1 -type f -name 'test-in-vm-*debian13*.json' ! -name '*-bootstrap-manifest.json' -print0 \
+  | xargs -0 jq '{status, profile, platform, image, remote_user, remote_dir, vm_name}'
 ```
 
 Pass criteria:
