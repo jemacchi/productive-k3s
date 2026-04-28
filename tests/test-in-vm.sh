@@ -305,7 +305,7 @@ run_bootstrap_with_answers() {
   local answers="$2"
   local escaped_answers
   escaped_answers=$(printf '%q' "$answers")
-  run_in_vm "cd '$REMOTE_DIR' && printf '%s' $escaped_answers | ./scripts/bootstrap-k3s-stack.sh $mode"
+  run_in_vm "cd '$REMOTE_DIR' && printf '%s' $escaped_answers | ./scripts/bootstrap-k3s-stack.sh --mode single-node $mode"
   capture_bootstrap_manifest
 }
 

@@ -1,4 +1,4 @@
-.PHONY: bootstrap dry-run backup validate validate-strict test-smoke test-core test-core-debian12 test-core-debian13 test-matrix-smoke test-matrix-core test-matrix-full test-matrix-full-rollback test-matrix-full-clean test-matrix-all
+.PHONY: bootstrap dry-run backup validate validate-strict test-bootstrap-modes test-agent-smoke test-smoke test-core test-core-debian12 test-core-debian13 test-matrix-smoke test-matrix-core test-matrix-full test-matrix-full-rollback test-matrix-full-clean test-matrix-all
 
 bootstrap:
 	./scripts/bootstrap-k3s-stack.sh
@@ -14,6 +14,12 @@ validate:
 
 validate-strict:
 	./scripts/validate-k3s-stack.sh --strict
+
+test-bootstrap-modes:
+	bash ./tests/test-bootstrap-modes.sh
+
+test-agent-smoke:
+	bash ./tests/test-agent-in-docker.sh
 
 test-smoke:
 	./tests/test-in-docker.sh
