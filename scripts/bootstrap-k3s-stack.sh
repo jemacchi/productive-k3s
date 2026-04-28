@@ -26,6 +26,7 @@ warn(){ printf "\r\n%s[WARN]%s %s\r\n" "$COLOR_YELLOW" "$COLOR_RESET" "$*"; }
 err(){ printf "\r\n%s[ERROR]%s %s\r\n" "$COLOR_RED" "$COLOR_RESET" "$*"; }
 
 DRY_RUN=0
+MODE="single-node"
 DRY_RUN_REUSE=()
 DRY_RUN_INSTALL=()
 DRY_RUN_SKIP=()
@@ -43,6 +44,8 @@ OS_VERSION_ID="unknown"
 OS_CODENAME="unknown"
 OS_PRETTY_NAME="unknown"
 PLATFORM_SUPPORT="unsupported"
+AGENT_SERVER_URL=""
+AGENT_CLUSTER_TOKEN=""
 declare -A MANIFEST_SETTINGS=()
 declare -A MANIFEST_DETECTED=()
 declare -A MANIFEST_PLANNED=()
@@ -55,6 +58,49 @@ pkg_installed() { dpkg -s "$1" >/dev/null 2>&1; }
 service_active() { systemctl is-active --quiet "$1" >/dev/null 2>&1; }
 mount_exists() { mountpoint -q "$1"; }
 can_use_tty() { [[ -t 0 && -t 1 && -r /dev/tty && -w /dev/tty ]]; }
+k3s_server_active() { service_active k3s; }
+k3s_agent_active() { service_active k3s-agent; }
+
+k3s_component_active() {
+  if [[ "$MODE" == "agent" ]]; then
+    k3s_agent_active
+  else
+    k3s_server_active
+  fi
+}
+
+mode_runs_base() {
+  [[ "$MODE" == "single-node" || "$MODE" == "server" ]]
+}
+
+mode_runs_stack() {
+  [[ "$MODE" == "single-node" || "$MODE" == "stack" ]]
+}
+
+mode_runs_host_local() {
+  [[ "$MODE" == "single-node" ]]
+}
+
+mode_uses_single_node_defaults() {
+  [[ "$MODE" == "single-node" ]]
+}
+
+mode_description() {
+  case "$MODE" in
+    single-node)
+      printf '%s' "single-node installation"
+      ;;
+    server)
+      printf '%s' "server bootstrap installation"
+      ;;
+    agent)
+      printf '%s' "agent join installation"
+      ;;
+    stack)
+      printf '%s' "cluster stack installation"
+      ;;
+  esac
+}
 
 result_for_mode() {
   if [[ "$DRY_RUN" == "1" ]]; then
@@ -156,7 +202,7 @@ write_run_manifest() {
 
     printf '  "settings": {\n'
     local first=1 key
-    for key in host_os_id host_os_version_id host_os_codename host_os_pretty_name platform_support base_domain rancher_host registry_host tls_mode letsencrypt_environment longhorn_data_path longhorn_replica_count longhorn_minimal_available_percentage longhorn_single_node_mode registry_pvc_size registry_storage_class registry_auth_enabled nfs_manage nfs_export_path nfs_allowed_network manage_local_hosts trust_registry_in_docker; do
+    for key in host_os_id host_os_version_id host_os_codename host_os_pretty_name platform_support bootstrap_mode agent_server_url agent_cluster_token_provided base_domain rancher_host registry_host tls_mode letsencrypt_environment longhorn_data_path longhorn_replica_count longhorn_minimal_available_percentage longhorn_single_node_mode registry_pvc_size registry_storage_class registry_auth_enabled nfs_manage nfs_export_path nfs_allowed_network manage_local_hosts trust_registry_in_docker; do
       [[ -n "${MANIFEST_SETTINGS[$key]+x}" ]] || continue
       if (( first == 0 )); then printf ',\n'; fi
       first=0
@@ -256,7 +302,7 @@ storageclass_exists() { kubectl_k3s get storageclass "$1" >/dev/null 2>&1; }
 clusterissuer_exists() { kubectl_k3s get clusterissuer "$1" >/dev/null 2>&1; }
 
 cluster_node_count() {
-  if service_active k3s; then
+  if k3s_server_active; then
     kubectl_k3s get nodes --no-headers 2>/dev/null | awk 'END {print NR+0}'
   else
     printf '0'
@@ -270,7 +316,7 @@ helm_release_exists() {
 get_primary_node_ip() {
   local ip=""
 
-  if service_active k3s; then
+  if k3s_server_active; then
     ip="$(kubectl_k3s get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || true)"
   fi
 
@@ -577,8 +623,20 @@ parse_args() {
       --dry-run)
         DRY_RUN=1
         ;;
+      --mode)
+        MODE="${2:-}"
+        shift
+        ;;
       -h|--help)
-        echo "Usage: $0 [--dry-run]"
+        cat <<EOF
+Usage: $0 [--dry-run] [--mode <single-node|server|agent|stack>]
+
+Modes:
+  single-node  Default. Bootstraps a single-node installation and can install the local stack.
+  server       Bootstraps only the base server node components.
+  agent        Reserved for future agent node join support.
+  stack        Installs or reuses stack components on top of an existing cluster.
+EOF
         exit 0
         ;;
       *)
@@ -588,6 +646,15 @@ parse_args() {
     esac
     shift
   done
+
+  case "$MODE" in
+    single-node|server|agent|stack)
+      ;;
+    *)
+      err "Unsupported mode: ${MODE}"
+      exit 1
+      ;;
+  esac
 }
 
 track_reuse() {
@@ -1070,7 +1137,11 @@ preflight_nfs_install() {
 install_k3s_if_needed() {
   local action="$1"
   if [[ "$action" == "reuse" ]]; then
-    track_reuse "k3s"
+    if [[ "$MODE" == "agent" ]]; then
+      track_reuse "k3s agent"
+    else
+      track_reuse "k3s"
+    fi
     manifest_complete_component "k3s" "$(result_for_mode reused)"
     return
   fi
@@ -1079,10 +1150,26 @@ install_k3s_if_needed() {
     exit 1
   fi
 
-  track_install "k3s"
+  local install_label="k3s"
+  if [[ "$MODE" == "agent" ]]; then
+    install_label="k3s agent"
+  fi
+
+  track_install "$install_label"
   ensure_packages "k3s installation" curl ca-certificates
-  log "Installing k3s (stable channel)..."
-  run_shell "Installing k3s (stable channel)" "curl -sfL https://get.k3s.io | sh -"
+  if [[ "$MODE" == "agent" ]]; then
+    if [[ -z "${AGENT_SERVER_URL:-}" || -z "${AGENT_CLUSTER_TOKEN:-}" ]]; then
+      err "Agent mode requires both the server URL and cluster token."
+      exit 1
+    fi
+    local install_cmd=""
+    printf -v install_cmd 'curl -sfL https://get.k3s.io | K3S_URL=%q K3S_TOKEN=%q INSTALL_K3S_EXEC=agent sh -' "$AGENT_SERVER_URL" "$AGENT_CLUSTER_TOKEN"
+    log "Installing k3s agent..."
+    run_shell "Installing k3s agent" "$install_cmd"
+  else
+    log "Installing k3s (stable channel)..."
+    run_shell "Installing k3s (stable channel)" "curl -sfL https://get.k3s.io | sh -"
+  fi
   manifest_complete_component "k3s" "$(result_for_mode installed)"
 }
 
@@ -1650,10 +1737,34 @@ main() {
       ;;
   esac
 
+  local mode_label
+  mode_label="$(mode_description)"
+  if [[ "$DRY_RUN" == "1" ]]; then
+    mode_label="dry-run ${mode_label}"
+  fi
+
   log "Incremental bootstrap: k3s + Rancher + Longhorn + Registry (${OS_PRETTY_NAME})"
+  log "Mode: ${MODE} (${mode_label})"
   line "  Run manifest: ${RUN_MANIFEST}"
   if [[ "$DRY_RUN" == "1" ]]; then
     warn "Running in dry-run mode. No changes will be applied."
+  fi
+  manifest_set_setting "bootstrap_mode" "$MODE"
+  local k3s_detected_state="missing"
+  local helm_detected_state="missing"
+
+  if k3s_component_active; then
+    k3s_detected_state="present"
+  fi
+  if need_cmd helm; then
+    helm_detected_state="present"
+  elif [[ "$MODE" == "agent" ]]; then
+    helm_detected_state="not-needed"
+  fi
+
+  if [[ "$MODE" == "agent" ]] && k3s_server_active; then
+    err "Agent mode cannot be used on a node where the k3s server service is already active."
+    exit 1
   fi
 
   local cert_manager_present="n"
@@ -1684,16 +1795,16 @@ main() {
   rancher_existing_host="$(get_first_ingress_host cattle-system rancher)"
   registry_existing_host="$(get_first_ingress_host registry registry)"
 
-  manifest_record_component "k3s" "$(service_active k3s && echo present || echo missing)" "pending"
-  manifest_record_component "helm" "$(need_cmd helm && echo present || echo missing)" "pending"
+  manifest_record_component "k3s" "$k3s_detected_state" "pending"
+  manifest_record_component "helm" "$helm_detected_state" "pending"
   manifest_record_component "cert_manager" "$( [[ "$cert_manager_present" == "y" ]] && echo present || echo missing )" "pending"
   manifest_record_component "longhorn" "$( [[ "$longhorn_present" == "y" ]] && echo present || echo missing )" "pending"
   manifest_record_component "rancher" "$( [[ "$rancher_present" == "y" ]] && echo present || echo missing )" "pending"
   manifest_record_component "registry" "$( [[ "$registry_present" == "y" ]] && echo present || echo missing )" "pending"
 
   print_detection_summary \
-    "$(service_active k3s && echo present || echo missing)" \
-    "$(need_cmd helm && echo present || echo missing)" \
+    "$k3s_detected_state" \
+    "$helm_detected_state" \
     "$( [[ "$cert_manager_present" == "y" ]] && echo present || echo missing )" \
     "$( [[ "$longhorn_present" == "y" ]] && echo present || echo missing )" \
     "$( [[ "$rancher_present" == "y" ]] && echo present || echo missing )" \
@@ -1705,8 +1816,8 @@ main() {
     log "Standalone kubectl was not detected. That is fine: this repository uses 'sudo k3s kubectl' for managed operations."
   fi
   print_diagnosis_summary \
-    "$(service_active k3s && echo present || echo missing)" \
-    "$(need_cmd helm && echo present || echo missing)" \
+    "$k3s_detected_state" \
+    "$helm_detected_state" \
     "$( [[ "$cert_manager_present" == "y" ]] && echo present || echo missing )" \
     "$( [[ "$longhorn_present" == "y" ]] && echo present || echo missing )" \
     "$( [[ "$rancher_present" == "y" ]] && echo present || echo missing )" \
@@ -1739,7 +1850,7 @@ main() {
   local CLUSTER_NODE_COUNT
   CLUSTER_NODE_COUNT="$(cluster_node_count)"
   local SINGLE_NODE_LONGHORN_MODE="n"
-  if [[ "$CLUSTER_NODE_COUNT" == "1" || "$CLUSTER_NODE_COUNT" == "0" ]]; then
+  if mode_uses_single_node_defaults && [[ "$CLUSTER_NODE_COUNT" == "1" || "$CLUSTER_NODE_COUNT" == "0" ]]; then
     SINGLE_NODE_LONGHORN_MODE="y"
   fi
 
@@ -1751,98 +1862,146 @@ main() {
   local REGISTRY_ACTION="reuse"
   local NFS_ACTION="skip"
 
-  if service_active k3s; then
-    prompt_yesno CONTINUE_K3S "y" "Existing k3s installation detected. Continue using it without changes? [required]"
-    [[ "$CONTINUE_K3S" == "y" ]] || { err "k3s is required for the remaining steps."; exit 1; }
+  if mode_runs_base || [[ "$MODE" == "agent" ]]; then
+    if [[ "$MODE" == "agent" ]]; then
+      if k3s_agent_active; then
+        prompt_yesno CONTINUE_K3S_AGENT "y" "Existing k3s agent installation detected. Continue using it without changes? [required]"
+        [[ "$CONTINUE_K3S_AGENT" == "y" ]] || { err "k3s agent is required for agent mode."; exit 1; }
+        K3S_ACTION="reuse"
+      else
+        prompt_yesno INSTALL_K3S_AGENT "y" "k3s agent was not detected. Install it now? [required]"
+        [[ "$INSTALL_K3S_AGENT" == "y" ]] || { err "Cannot continue without k3s agent."; exit 1; }
+        K3S_ACTION="install"
+        prompt AGENT_SERVER_URL "https://server.example.local:6443" "Agent server URL"
+        prompt AGENT_CLUSTER_TOKEN "change-me-token" "Agent cluster token"
+        [[ -n "$AGENT_SERVER_URL" ]] || { err "Agent server URL cannot be empty."; exit 1; }
+        [[ -n "$AGENT_CLUSTER_TOKEN" ]] || { err "Agent cluster token cannot be empty."; exit 1; }
+      fi
+      HELM_ACTION="skip"
+      MANIFEST_RESULT["helm"]="skipped"
+    else
+      if k3s_server_active; then
+        prompt_yesno CONTINUE_K3S "y" "Existing k3s installation detected. Continue using it without changes? [required]"
+        [[ "$CONTINUE_K3S" == "y" ]] || { err "k3s is required for the remaining steps."; exit 1; }
+        K3S_ACTION="reuse"
+      else
+        prompt_yesno INSTALL_K3S "y" "k3s was not detected. Install it now? [required]"
+        [[ "$INSTALL_K3S" == "y" ]] || { err "Cannot continue without k3s."; exit 1; }
+        K3S_ACTION="install"
+      fi
+
+      if need_cmd helm; then
+        prompt_yesno CONTINUE_HELM "y" "Helm is already installed. Continue using it without changes? [required]"
+        [[ "$CONTINUE_HELM" == "y" ]] || { err "Helm is required for chart-based installs."; exit 1; }
+        HELM_ACTION="reuse"
+      else
+        prompt_yesno INSTALL_HELM "y" "Helm was not detected. Install it now? [required]"
+        [[ "$INSTALL_HELM" == "y" ]] || { err "Cannot continue without Helm."; exit 1; }
+        HELM_ACTION="install"
+      fi
+    fi
+  else
+    if ! k3s_server_active; then
+      err "Mode '${MODE}' requires an existing k3s cluster."
+      exit 1
+    fi
+    if ! need_cmd helm; then
+      err "Mode '${MODE}' requires Helm to be installed already."
+      exit 1
+    fi
     K3S_ACTION="reuse"
-  else
-    prompt_yesno INSTALL_K3S "y" "k3s was not detected. Install it now? [required]"
-    [[ "$INSTALL_K3S" == "y" ]] || { err "Cannot continue without k3s."; exit 1; }
-    K3S_ACTION="install"
-  fi
-
-  if need_cmd helm; then
-    prompt_yesno CONTINUE_HELM "y" "Helm is already installed. Continue using it without changes? [required]"
-    [[ "$CONTINUE_HELM" == "y" ]] || { err "Helm is required for chart-based installs."; exit 1; }
     HELM_ACTION="reuse"
-  else
-    prompt_yesno INSTALL_HELM "y" "Helm was not detected. Install it now? [required]"
-    [[ "$INSTALL_HELM" == "y" ]] || { err "Cannot continue without Helm."; exit 1; }
-    HELM_ACTION="install"
   fi
 
-  if [[ "$longhorn_present" == "y" ]]; then
-    prompt_yesno REUSE_LONGHORN "y" "Longhorn is already present. Leave it unchanged and continue? [optional]"
-    if [[ "$REUSE_LONGHORN" == "y" ]]; then LONGHORN_ACTION="reuse"; else LONGHORN_ACTION="skip"; fi
-  else
-    prompt_yesno INSTALL_LONGHORN "y" "Longhorn is missing. Install it now? [optional]"
-    if [[ "$INSTALL_LONGHORN" == "y" ]]; then LONGHORN_ACTION="install"; else LONGHORN_ACTION="skip"; fi
-  fi
-
-  if [[ "$rancher_present" == "y" ]]; then
-    prompt_yesno REUSE_RANCHER "y" "Rancher is already present. Leave it unchanged and continue? [optional]"
-    if [[ "$REUSE_RANCHER" == "y" ]]; then RANCHER_ACTION="reuse"; else RANCHER_ACTION="skip"; fi
-  else
-    prompt_yesno INSTALL_RANCHER "y" "Rancher is missing. Install it now? [optional]"
-    if [[ "$INSTALL_RANCHER" == "y" ]]; then RANCHER_ACTION="install"; else RANCHER_ACTION="skip"; fi
-  fi
-
-  if [[ "$registry_present" == "y" ]]; then
-    prompt_yesno REUSE_REGISTRY "y" "The in-cluster registry is already present. Leave it unchanged and continue? [optional]"
-    if [[ "$REUSE_REGISTRY" == "y" ]]; then REGISTRY_ACTION="reuse"; else REGISTRY_ACTION="skip"; fi
-  else
-    prompt_yesno INSTALL_REGISTRY "y" "The in-cluster registry is missing. Install it now? [optional]"
-    if [[ "$INSTALL_REGISTRY" == "y" ]]; then REGISTRY_ACTION="install"; else REGISTRY_ACTION="skip"; fi
-  fi
-
-  if [[ "$cert_manager_present" == "y" ]]; then
-    CERT_MANAGER_ACTION="reuse"
-  elif [[ "$RANCHER_ACTION" == "install" || "$REGISTRY_ACTION" == "install" ]]; then
-    prompt_yesno INSTALL_CERT_MANAGER "y" "cert-manager is missing. Install it now? [required for TLS-dependent installs]"
-    [[ "$INSTALL_CERT_MANAGER" == "y" ]] || { err "Skipping cert-manager would leave TLS-dependent installs unsupported."; exit 1; }
-    CERT_MANAGER_ACTION="install"
-  else
-    CERT_MANAGER_ACTION="skip"
-    MANIFEST_RESULT["cert_manager"]="skipped"
-  fi
-
-  prompt_yesno ENABLE_NFS "y" "Do you want to ensure a local NFS server is available for host-to-cluster shared files? [optional]"
-  if [[ "$ENABLE_NFS" == "y" ]]; then
-    if nfs_export_exists "$NFS_EXPORT_PATH"; then
-      nfs_export_present="y"
+  if mode_runs_stack; then
+    if [[ "$longhorn_present" == "y" ]]; then
+      prompt_yesno REUSE_LONGHORN "y" "Longhorn is already present. Leave it unchanged and continue? [optional]"
+      if [[ "$REUSE_LONGHORN" == "y" ]]; then LONGHORN_ACTION="reuse"; else LONGHORN_ACTION="skip"; fi
+    else
+      prompt_yesno INSTALL_LONGHORN "y" "Longhorn is missing. Install it now? [optional]"
+      if [[ "$INSTALL_LONGHORN" == "y" ]]; then LONGHORN_ACTION="install"; else LONGHORN_ACTION="skip"; fi
     fi
 
-    if [[ "$nfs_present" == "y" && "$nfs_export_present" == "y" ]]; then
-      prompt_yesno REUSE_EXISTING_NFS "y" "NFS server and export are already present. Leave them unchanged and continue?"
-      if [[ "$REUSE_EXISTING_NFS" == "y" ]]; then
-        NFS_ACTION="reuse"
+    if [[ "$rancher_present" == "y" ]]; then
+      prompt_yesno REUSE_RANCHER "y" "Rancher is already present. Leave it unchanged and continue? [optional]"
+      if [[ "$REUSE_RANCHER" == "y" ]]; then RANCHER_ACTION="reuse"; else RANCHER_ACTION="skip"; fi
+    else
+      prompt_yesno INSTALL_RANCHER "y" "Rancher is missing. Install it now? [optional]"
+      if [[ "$INSTALL_RANCHER" == "y" ]]; then RANCHER_ACTION="install"; else RANCHER_ACTION="skip"; fi
+    fi
+
+    if [[ "$registry_present" == "y" ]]; then
+      prompt_yesno REUSE_REGISTRY "y" "The in-cluster registry is already present. Leave it unchanged and continue? [optional]"
+      if [[ "$REUSE_REGISTRY" == "y" ]]; then REGISTRY_ACTION="reuse"; else REGISTRY_ACTION="skip"; fi
+    else
+      prompt_yesno INSTALL_REGISTRY "y" "The in-cluster registry is missing. Install it now? [optional]"
+      if [[ "$INSTALL_REGISTRY" == "y" ]]; then REGISTRY_ACTION="install"; else REGISTRY_ACTION="skip"; fi
+    fi
+
+    if [[ "$cert_manager_present" == "y" ]]; then
+      CERT_MANAGER_ACTION="reuse"
+    elif [[ "$RANCHER_ACTION" == "install" || "$REGISTRY_ACTION" == "install" ]]; then
+      prompt_yesno INSTALL_CERT_MANAGER "y" "cert-manager is missing. Install it now? [required for TLS-dependent installs]"
+      [[ "$INSTALL_CERT_MANAGER" == "y" ]] || { err "Skipping cert-manager would leave TLS-dependent installs unsupported."; exit 1; }
+      CERT_MANAGER_ACTION="install"
+    else
+      CERT_MANAGER_ACTION="skip"
+      MANIFEST_RESULT["cert_manager"]="skipped"
+    fi
+  else
+    CERT_MANAGER_ACTION="skip"
+    LONGHORN_ACTION="skip"
+    RANCHER_ACTION="skip"
+    REGISTRY_ACTION="skip"
+    MANIFEST_RESULT["cert_manager"]="skipped"
+    MANIFEST_RESULT["longhorn"]="skipped"
+    MANIFEST_RESULT["rancher"]="skipped"
+    MANIFEST_RESULT["registry"]="skipped"
+  fi
+
+  local ENABLE_NFS="n"
+  if mode_runs_host_local; then
+    prompt_yesno ENABLE_NFS "y" "Do you want to ensure a local NFS server is available for host-to-cluster shared files? [optional]"
+    if [[ "$ENABLE_NFS" == "y" ]]; then
+      if nfs_export_exists "$NFS_EXPORT_PATH"; then
+        nfs_export_present="y"
+      fi
+
+      if [[ "$nfs_present" == "y" && "$nfs_export_present" == "y" ]]; then
+        prompt_yesno REUSE_EXISTING_NFS "y" "NFS server and export are already present. Leave them unchanged and continue?"
+        if [[ "$REUSE_EXISTING_NFS" == "y" ]]; then
+          NFS_ACTION="reuse"
+        else
+          prompt NFS_EXPORT_PATH "$NFS_EXPORT_PATH" "NFS export path on the host"
+          prompt NFS_ALLOWED_NETWORK "$NFS_ALLOWED_NETWORK" "Allowed client network/CIDR for the NFS export"
+          if nfs_export_exists "$NFS_EXPORT_PATH"; then
+            nfs_export_present="y"
+            NFS_ACTION="reuse"
+          else
+            nfs_export_present="n"
+            NFS_ACTION="add-export"
+          fi
+        fi
       else
         prompt NFS_EXPORT_PATH "$NFS_EXPORT_PATH" "NFS export path on the host"
         prompt NFS_ALLOWED_NETWORK "$NFS_ALLOWED_NETWORK" "Allowed client network/CIDR for the NFS export"
         if nfs_export_exists "$NFS_EXPORT_PATH"; then
           nfs_export_present="y"
+        fi
+        if [[ "$nfs_present" == "y" && "$nfs_export_present" == "y" ]]; then
           NFS_ACTION="reuse"
-        else
-          nfs_export_present="n"
+        elif [[ "$nfs_present" == "y" ]]; then
           NFS_ACTION="add-export"
+        else
+          NFS_ACTION="install"
         fi
       fi
     else
-      prompt NFS_EXPORT_PATH "$NFS_EXPORT_PATH" "NFS export path on the host"
-      prompt NFS_ALLOWED_NETWORK "$NFS_ALLOWED_NETWORK" "Allowed client network/CIDR for the NFS export"
-      if nfs_export_exists "$NFS_EXPORT_PATH"; then
-        nfs_export_present="y"
-      fi
-      if [[ "$nfs_present" == "y" && "$nfs_export_present" == "y" ]]; then
-        NFS_ACTION="reuse"
-      elif [[ "$nfs_present" == "y" ]]; then
-        NFS_ACTION="add-export"
-      else
-        NFS_ACTION="install"
-      fi
+      track_skip "NFS: user chose not to manage NFS"
     fi
   else
-    track_skip "NFS: user chose not to manage NFS"
+    NFS_ACTION="skip"
+    MANIFEST_RESULT["nfs"]="skipped"
   fi
 
   if [[ "$nfs_present" == "y" && "$nfs_export_present" == "y" ]]; then
@@ -1853,9 +2012,13 @@ main() {
     manifest_record_component "nfs" "missing" "$NFS_ACTION"
   fi
 
-  prompt_yesno MANAGE_LOCAL_HOSTS "y" "Do you want this script to add/update local /etc/hosts entries for Rancher and Registry on this machine? [optional]"
+  if mode_runs_host_local; then
+    prompt_yesno MANAGE_LOCAL_HOSTS "y" "Do you want this script to add/update local /etc/hosts entries for Rancher and Registry on this machine? [optional]"
+  else
+    MANAGE_LOCAL_HOSTS="n"
+  fi
 
-  if [[ "$RANCHER_ACTION" == "install" || "$REGISTRY_ACTION" == "install" ]]; then
+  if mode_runs_stack && [[ "$RANCHER_ACTION" == "install" || "$REGISTRY_ACTION" == "install" ]]; then
     prompt DOMAIN "$DOMAIN" "Base domain (used to build hostnames)"
     if [[ "$RANCHER_ACTION" == "install" ]]; then
       prompt RANCHER_HOST "${rancher_existing_host:-rancher.${DOMAIN}}" "Rancher hostname (DNS name)"
@@ -1864,7 +2027,7 @@ main() {
     if [[ "$REGISTRY_ACTION" == "install" ]]; then
       prompt REGISTRY_HOST "${registry_existing_host:-registry.${DOMAIN}}" "Registry hostname (DNS name)"
       prompt REGISTRY_SIZE "$REGISTRY_SIZE" "Registry PVC size"
-      if [[ "$SINGLE_NODE_LONGHORN_MODE" == "y" ]]; then
+      if mode_uses_single_node_defaults && [[ "$SINGLE_NODE_LONGHORN_MODE" == "y" ]]; then
         REGISTRY_STORAGE_CLASS="longhorn-single"
       elif storageclass_exists longhorn; then
         REGISTRY_STORAGE_CLASS="longhorn"
@@ -1889,19 +2052,21 @@ main() {
     fi
   fi
 
-  if [[ "$LONGHORN_ACTION" == "install" ]]; then
+  if mode_runs_stack && [[ "$LONGHORN_ACTION" == "install" ]]; then
     prompt LONGHORN_DATA_PATH "$LONGHORN_DATA_PATH" "Longhorn data mount path"
     prompt LONGHORN_REPLICA_COUNT "$LONGHORN_REPLICA_COUNT" "Longhorn default replica count (1 for single-node)"
-    if [[ "$SINGLE_NODE_LONGHORN_MODE" == "y" ]]; then
+    if mode_uses_single_node_defaults && [[ "$SINGLE_NODE_LONGHORN_MODE" == "y" ]]; then
       prompt LONGHORN_MINIMAL_AVAILABLE_PERCENTAGE "$LONGHORN_MINIMAL_AVAILABLE_PERCENTAGE" "Longhorn storage minimal available percentage (10 is recommended for single-node dev/lab)"
       log "Single-node Longhorn mode is enabled. The bootstrap will create a 'longhorn-single' StorageClass with numberOfReplicas=1."
     fi
   fi
 
-  if [[ "$TLS_CHOICE" == "2" ]]; then
+  if mode_runs_host_local && [[ "$TLS_CHOICE" == "2" ]]; then
     prompt_yesno TRUST_REGISTRY_IN_DOCKER "y" "Do you want this script to trust the registry certificate in local Docker on this machine? [optional]"
   fi
 
+  manifest_set_setting "agent_server_url" "$AGENT_SERVER_URL"
+  manifest_set_setting "agent_cluster_token_provided" "$( [[ -n "$AGENT_CLUSTER_TOKEN" ]] && echo y || echo n )"
   manifest_set_setting "base_domain" "$DOMAIN"
   manifest_set_setting "rancher_host" "$RANCHER_HOST"
   manifest_set_setting "registry_host" "$REGISTRY_HOST"
@@ -1931,7 +2096,7 @@ main() {
   MANIFEST_PLANNED["local_hosts"]="$( [[ "$MANAGE_LOCAL_HOSTS" == "y" ]] && echo update || echo skip )"
   MANIFEST_DETECTED["docker_registry_trust"]="unknown"
   MANIFEST_PLANNED["docker_registry_trust"]="$( [[ "$TLS_CHOICE" == "2" && "$TRUST_REGISTRY_IN_DOCKER" == "y" ]] && echo install || echo skip )"
-  if [[ "$RANCHER_ACTION" == "install" || "$REGISTRY_ACTION" == "install" ]]; then
+  if mode_runs_stack && [[ "$RANCHER_ACTION" == "install" || "$REGISTRY_ACTION" == "install" ]]; then
     MANIFEST_DETECTED["clusterissuer"]="$( clusterissuer_exists "$ISSUER_NAME" && echo present || echo missing )"
     MANIFEST_PLANNED["clusterissuer"]="ensure"
   else
@@ -1956,9 +2121,17 @@ main() {
 
   CURRENT_STEP="k3s"
   install_k3s_if_needed "$K3S_ACTION"
-  CURRENT_STEP="helm"
-  install_helm_if_needed "$HELM_ACTION"
-  if service_active k3s; then
+  if [[ "$MODE" != "agent" ]]; then
+    CURRENT_STEP="helm"
+    install_helm_if_needed "$HELM_ACTION"
+  fi
+  if [[ "$MODE" == "agent" ]]; then
+    if k3s_agent_active; then
+      log "k3s agent service is active."
+    else
+      warn "k3s agent is not active yet. Agent-level checks will be partial until it is installed for real."
+    fi
+  elif k3s_server_active; then
     wait_k3s_ready 180
     CURRENT_STEP="cluster-inspection"
     log "Inspecting k3s node..."
@@ -1967,68 +2140,85 @@ main() {
   else
     warn "k3s is not active yet. Cluster-level checks will be partial until it is installed for real."
   fi
-  if [[ "$RANCHER_ACTION" == "install" || "$REGISTRY_ACTION" == "install" ]]; then
+  if mode_runs_stack && [[ "$RANCHER_ACTION" == "install" || "$REGISTRY_ACTION" == "install" ]]; then
     CURRENT_STEP="cert_manager"
     ensure_cert_manager "$cert_manager_present" "$CERT_MANAGER_ACTION"
     CURRENT_STEP="clusterissuer"
     ensure_issuer "$TLS_CHOICE" "$ISSUER_NAME" "$LE_EMAIL" "$LE_ENV"
   fi
-  CURRENT_STEP="longhorn"
-  install_longhorn_if_needed "$longhorn_present" "$LONGHORN_ACTION" "$LONGHORN_DATA_PATH" "$LONGHORN_REPLICA_COUNT" "$LONGHORN_MINIMAL_AVAILABLE_PERCENTAGE" "$SINGLE_NODE_LONGHORN_MODE"
-  CURRENT_STEP="rancher"
-  install_rancher_if_needed "$rancher_present" "$RANCHER_ACTION" "$TLS_CHOICE" "$ISSUER_NAME" "$RANCHER_HOST" "$ADMIN_PASS" "$LE_EMAIL" "$LE_ENV"
-  CURRENT_STEP="registry"
-  install_registry_if_needed "$registry_present" "$REGISTRY_ACTION" "$TLS_CHOICE" "$ISSUER_NAME" "$REGISTRY_HOST" "$REGISTRY_SIZE" "$REGISTRY_STORAGE_CLASS" "$REGISTRY_AUTH_ENABLED" "$REGISTRY_AUTH_USER" "$REGISTRY_AUTH_PASSWORD"
-  if [[ "$ENABLE_NFS" == "y" ]]; then
+  if mode_runs_stack; then
+    CURRENT_STEP="longhorn"
+    install_longhorn_if_needed "$longhorn_present" "$LONGHORN_ACTION" "$LONGHORN_DATA_PATH" "$LONGHORN_REPLICA_COUNT" "$LONGHORN_MINIMAL_AVAILABLE_PERCENTAGE" "$SINGLE_NODE_LONGHORN_MODE"
+    CURRENT_STEP="rancher"
+    install_rancher_if_needed "$rancher_present" "$RANCHER_ACTION" "$TLS_CHOICE" "$ISSUER_NAME" "$RANCHER_HOST" "$ADMIN_PASS" "$LE_EMAIL" "$LE_ENV"
+    CURRENT_STEP="registry"
+    install_registry_if_needed "$registry_present" "$REGISTRY_ACTION" "$TLS_CHOICE" "$ISSUER_NAME" "$REGISTRY_HOST" "$REGISTRY_SIZE" "$REGISTRY_STORAGE_CLASS" "$REGISTRY_AUTH_ENABLED" "$REGISTRY_AUTH_USER" "$REGISTRY_AUTH_PASSWORD"
+  fi
+  if mode_runs_host_local && [[ "$ENABLE_NFS" == "y" ]]; then
     CURRENT_STEP="nfs"
     install_nfs_if_needed "$nfs_present" "$nfs_export_present" "$NFS_ACTION" "$NFS_EXPORT_PATH" "$NFS_ALLOWED_NETWORK"
   fi
-  if [[ "$MANAGE_LOCAL_HOSTS" == "y" ]]; then
+  if mode_runs_host_local && [[ "$MANAGE_LOCAL_HOSTS" == "y" ]]; then
     CURRENT_STEP="local_hosts"
     ensure_local_hosts_entries "$NODE_IP" "$RANCHER_HOST" "$REGISTRY_HOST"
-  else
+  elif mode_runs_host_local; then
     track_skip "/etc/hosts: user chose not to manage local host entries"
     manifest_complete_component "local_hosts" "skipped"
+  else
+    manifest_complete_component "local_hosts" "skipped"
   fi
-  if [[ "$TLS_CHOICE" == "2" && "$TRUST_REGISTRY_IN_DOCKER" == "y" ]]; then
+  if mode_runs_host_local && [[ "$TLS_CHOICE" == "2" && "$TRUST_REGISTRY_IN_DOCKER" == "y" ]]; then
     CURRENT_STEP="docker_registry_trust"
     ensure_local_docker_registry_trust "$REGISTRY_HOST"
-  elif [[ "$TLS_CHOICE" == "2" ]]; then
+  elif mode_runs_host_local && [[ "$TLS_CHOICE" == "2" ]]; then
     track_skip "Docker trust: user chose not to install local registry certificate trust"
+    manifest_complete_component "docker_registry_trust" "skipped"
+  else
     manifest_complete_component "docker_registry_trust" "skipped"
   fi
   CURRENT_STEP="completed"
 
   log "DONE. Quick checks:"
-  line "  k3s nodes:            sudo k3s kubectl get nodes"
-  line "  cert-manager pods:    sudo k3s kubectl get pods -n cert-manager"
-  line "  longhorn pods:        sudo k3s kubectl get pods -n longhorn-system"
-  line "  rancher pods:         sudo k3s kubectl get pods -n cattle-system"
-  line "  registry pods:        sudo k3s kubectl get pods -n registry"
-  line "  nfs exports:          sudo exportfs -v"
-  nl
-
-  warn "DNS/Hosts:"
-  line "  Ensure these resolve to your VM IP:"
-  line "    ${RANCHER_HOST}"
-  line "    ${REGISTRY_HOST}"
-  if [[ "$MANAGE_LOCAL_HOSTS" == "y" ]]; then
-    if [[ "$DRY_RUN" == "1" ]]; then
-      line "  Local /etc/hosts entries would be updated on this machine:"
-    else
-      line "  Local /etc/hosts entries were updated on this machine:"
-    fi
-    line "    ${NODE_IP} ${RANCHER_HOST} ${REGISTRY_HOST}"
+  if [[ "$MODE" == "agent" ]]; then
+    line "  k3s agent status:     sudo systemctl status k3s-agent --no-pager"
+    line "  k3s agent logs:       sudo journalctl -u k3s-agent -n 100 --no-pager"
   else
-    line "  For local testing on the VM itself, you can add to /etc/hosts:"
-    line "    <VM-IP> ${RANCHER_HOST} ${REGISTRY_HOST}"
+    line "  k3s nodes:            sudo k3s kubectl get nodes"
+  fi
+  if mode_runs_stack; then
+    line "  cert-manager pods:    sudo k3s kubectl get pods -n cert-manager"
+    line "  longhorn pods:        sudo k3s kubectl get pods -n longhorn-system"
+    line "  rancher pods:         sudo k3s kubectl get pods -n cattle-system"
+    line "  registry pods:        sudo k3s kubectl get pods -n registry"
+  fi
+  if mode_runs_host_local; then
+    line "  nfs exports:          sudo exportfs -v"
   fi
   nl
 
-  if [[ "$TLS_CHOICE" == "2" ]]; then
+  if mode_runs_stack; then
+    warn "DNS/Hosts:"
+    line "  Ensure these resolve to your VM IP:"
+    line "    ${RANCHER_HOST}"
+    line "    ${REGISTRY_HOST}"
+    if mode_runs_host_local && [[ "$MANAGE_LOCAL_HOSTS" == "y" ]]; then
+      if [[ "$DRY_RUN" == "1" ]]; then
+        line "  Local /etc/hosts entries would be updated on this machine:"
+      else
+        line "  Local /etc/hosts entries were updated on this machine:"
+      fi
+      line "    ${NODE_IP} ${RANCHER_HOST} ${REGISTRY_HOST}"
+    else
+      line "  For local testing on the VM itself, you can add to /etc/hosts:"
+      line "    <VM-IP> ${RANCHER_HOST} ${REGISTRY_HOST}"
+    fi
+    nl
+  fi
+
+  if mode_runs_stack && [[ "$TLS_CHOICE" == "2" ]]; then
     warn "Self-signed TLS:"
     line "  - Your browser and Docker clients may not trust the cert by default."
-    if [[ "$TRUST_REGISTRY_IN_DOCKER" == "y" ]]; then
+    if mode_runs_host_local && [[ "$TRUST_REGISTRY_IN_DOCKER" == "y" ]]; then
       if [[ "$DRY_RUN" == "1" ]]; then
         line "  - Local Docker trust would be installed for ${REGISTRY_HOST} on this machine."
       else
@@ -2037,19 +2227,25 @@ main() {
     else
       line "  - To use the registry with docker push/pull from a machine, you typically need to trust the CA/cert."
     fi
-  else
+  elif mode_runs_stack; then
     log "Let's Encrypt TLS:"
     line "  - Make sure ports 80/443 are reachable from the internet and DNS points to this VM."
     line "  - If cert issuance fails, check: sudo k3s kubectl describe certificate -A"
   fi
 
   nl
-  line "  Rancher URL:  https://${RANCHER_HOST}"
-  line "  Registry URL: https://${REGISTRY_HOST}"
-  if [[ "$registry_present" != "y" && "$REGISTRY_AUTH_ENABLED" == "y" ]]; then
-    line "  Registry auth: ${REGISTRY_AUTH_USER} / <configured password>"
+  if [[ "$MODE" == "agent" ]]; then
+    line "  Agent server URL: ${AGENT_SERVER_URL:-<existing agent configuration>}"
+    line "  Join token:       <configured>"
   fi
-  if [[ "$ENABLE_NFS" == "y" ]]; then
+  if mode_runs_stack; then
+    line "  Rancher URL:  https://${RANCHER_HOST}"
+    line "  Registry URL: https://${REGISTRY_HOST}"
+    if [[ "$registry_present" != "y" && "$REGISTRY_AUTH_ENABLED" == "y" ]]; then
+      line "  Registry auth: ${REGISTRY_AUTH_USER} / <configured password>"
+    fi
+  fi
+  if mode_runs_host_local && [[ "$ENABLE_NFS" == "y" ]]; then
     line "  NFS export:    $(hostname -I 2>/dev/null | awk '{print $1}'):${NFS_EXPORT_PATH}"
     line "  NFS clients:   ${NFS_ALLOWED_NETWORK}"
   fi

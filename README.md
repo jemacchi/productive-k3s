@@ -16,6 +16,13 @@ Bootstrap and validation for a local `k3s` stack with:
 - internal registry
 - host NFS export
 
+Bootstrap modes:
+
+- `single-node` (default): installs the base node and can install the local stack on the same machine
+- `server`: installs only the base server bootstrap components
+- `agent`: joins a node to an existing K3S server using a server URL and cluster token
+- `stack`: installs or reuses stack components on top of an existing cluster
+
 ## Reasons Behind
 
 `productive-k3s` is meant to provide a lightweight but production-oriented Kubernetes environment on a single host.
@@ -57,6 +64,11 @@ Support means these flows have successful retained validation evidence:
 - `full`
 - `full-rollback`
 - `full-clean`
+
+Test runner note:
+
+- `full` and `full-rollback` can spend extra time in strict validation while Rancher and Fleet finish reconciling secondary workloads; seeing a few retry loops before the profile turns green is expected.
+- `full-rollback` can also hit a `longhorn-uninstall` job failure such as `BackoffLimitExceeded` during rollback. The harness continues with forced cleanup and then verifies that the Longhorn, Rancher, Registry, cert-manager, NFS export, and bootstrap-managed host entries were actually removed.
 
 Platform notes:
 
@@ -173,6 +185,7 @@ Commands:
 
 ```bash
 make test-core
+make test-matrix-all
 ./tests/test-in-vm.sh --platform ubuntu --image 24.04 --profile full
 ./tests/test-in-vm.sh --platform debian12 --profile full-rollback
 ./tests/test-in-vm.sh --platform debian13 --profile full-clean
