@@ -2,6 +2,7 @@ SHELL := /bin/bash
 
 VM_TEST := ./test-in-vm.sh
 ARTIFACT_CHECK := ./check-test-artifacts.sh
+PUBLIC_ARTIFACT_PRIVACY_CHECK := ./check-public-test-artifacts.sh
 DEBIAN12_IMAGE := https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2
 DEBIAN13_IMAGE := https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2
 
@@ -20,10 +21,15 @@ DEBIAN13_IMAGE := https://cloud.debian.org/images/cloud/trixie/latest/debian-13-
 	full-clean-ubuntu-24.04 full-clean-ubuntu-22.04 full-clean-debian12 full-clean-debian13
 
 clean-test-artifacts:
-	rm -f ../test-artifacts/test-in-vm-*.json ../test-artifacts/test-in-vm-*-bootstrap-manifest.json
+	rm -f ../test-artifacts/test-in-vm-*.json ../test-artifacts/test-in-vm-*-public.json ../test-artifacts/test-in-vm-*-bootstrap-manifest.json
 
 run-smoke-tests: clean-test-artifacts smoke-ubuntu-24.04 smoke-ubuntu-22.04 smoke-debian12 smoke-debian13
 	$(ARTIFACT_CHECK) --profile smoke \
+		--expect 'ubuntu|24.04' \
+		--expect 'ubuntu|22.04' \
+		--expect 'debian12|$(DEBIAN12_IMAGE)' \
+		--expect 'debian13|$(DEBIAN13_IMAGE)'
+	$(PUBLIC_ARTIFACT_PRIVACY_CHECK) --profile smoke \
 		--expect 'ubuntu|24.04' \
 		--expect 'ubuntu|22.04' \
 		--expect 'debian12|$(DEBIAN12_IMAGE)' \
@@ -35,9 +41,19 @@ run-core-tests: clean-test-artifacts core-ubuntu-24.04 core-ubuntu-22.04 core-de
 		--expect 'ubuntu|22.04' \
 		--expect 'debian12|$(DEBIAN12_IMAGE)' \
 		--expect 'debian13|$(DEBIAN13_IMAGE)'
+	$(PUBLIC_ARTIFACT_PRIVACY_CHECK) --profile core \
+		--expect 'ubuntu|24.04' \
+		--expect 'ubuntu|22.04' \
+		--expect 'debian12|$(DEBIAN12_IMAGE)' \
+		--expect 'debian13|$(DEBIAN13_IMAGE)'
 
 run-full-tests: clean-test-artifacts full-ubuntu-24.04 full-ubuntu-22.04 full-debian12 full-debian13
 	$(ARTIFACT_CHECK) --profile full \
+		--expect 'ubuntu|24.04' \
+		--expect 'ubuntu|22.04' \
+		--expect 'debian12|$(DEBIAN12_IMAGE)' \
+		--expect 'debian13|$(DEBIAN13_IMAGE)'
+	$(PUBLIC_ARTIFACT_PRIVACY_CHECK) --profile full \
 		--expect 'ubuntu|24.04' \
 		--expect 'ubuntu|22.04' \
 		--expect 'debian12|$(DEBIAN12_IMAGE)' \
@@ -49,9 +65,19 @@ run-full-rollback-tests: clean-test-artifacts full-rollback-ubuntu-24.04 full-ro
 		--expect 'ubuntu|22.04' \
 		--expect 'debian12|$(DEBIAN12_IMAGE)' \
 		--expect 'debian13|$(DEBIAN13_IMAGE)'
+	$(PUBLIC_ARTIFACT_PRIVACY_CHECK) --profile full-rollback \
+		--expect 'ubuntu|24.04' \
+		--expect 'ubuntu|22.04' \
+		--expect 'debian12|$(DEBIAN12_IMAGE)' \
+		--expect 'debian13|$(DEBIAN13_IMAGE)'
 
 run-full-clean-tests: clean-test-artifacts full-clean-ubuntu-24.04 full-clean-ubuntu-22.04 full-clean-debian12 full-clean-debian13
 	$(ARTIFACT_CHECK) --profile full-clean \
+		--expect 'ubuntu|24.04' \
+		--expect 'ubuntu|22.04' \
+		--expect 'debian12|$(DEBIAN12_IMAGE)' \
+		--expect 'debian13|$(DEBIAN13_IMAGE)'
+	$(PUBLIC_ARTIFACT_PRIVACY_CHECK) --profile full-clean \
 		--expect 'ubuntu|24.04' \
 		--expect 'ubuntu|22.04' \
 		--expect 'debian12|$(DEBIAN12_IMAGE)' \
