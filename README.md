@@ -47,6 +47,7 @@ Detailed rationale:
 - [Why this stack exists](./docs/reasons-behind.md)
 - [Post-development testing guide](./docs/post-development-testing.md)
 - [GitHub Actions and release automation](./docs/github-actions.md)
+- [Privacy and telemetry contract](./docs/privacy-and-telemetry.md)
 
 ## Supported Platforms
 

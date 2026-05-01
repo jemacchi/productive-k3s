@@ -6,6 +6,8 @@ set -euo pipefail
 # - Prompts before each change
 # - Leaves existing cluster components untouched by default
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
   COLOR_GREEN=$'\033[1;32m'
   COLOR_YELLOW=$'\033[1;33m'
@@ -34,6 +36,7 @@ DRY_RUN_WARNINGS=()
 RUNS_DIR="runs"
 RUN_ID=""
 RUN_MANIFEST=""
+RUN_PRIVATE_CONTEXT=""
 RUN_STARTED_AT=""
 RUN_STATUS="running"
 CURRENT_STEP=""
@@ -46,18 +49,64 @@ OS_PRETTY_NAME="unknown"
 PLATFORM_SUPPORT="unsupported"
 AGENT_SERVER_URL=""
 AGENT_CLUSTER_TOKEN=""
+TELEMETRY_ENABLED="${TELEMETRY_ENABLED:-false}"
+TELEMETRY_ENDPOINT="${TELEMETRY_ENDPOINT:-}"
+TELEMETRY_MAX_RETRIES="${TELEMETRY_MAX_RETRIES:-3}"
+TELEMETRY_CONNECT_TIMEOUT_SECONDS="${TELEMETRY_CONNECT_TIMEOUT_SECONDS:-5}"
+TELEMETRY_REQUEST_TIMEOUT_SECONDS="${TELEMETRY_REQUEST_TIMEOUT_SECONDS:-10}"
+TELEMETRY_OUTBOX_DIR="${TELEMETRY_OUTBOX_DIR:-${RUNS_DIR}/telemetry-outbox}"
+TELEMETRY_USER_AGENT="${TELEMETRY_USER_AGENT:-productive-k3s/dev}"
 declare -A MANIFEST_SETTINGS=()
 declare -A MANIFEST_DETECTED=()
 declare -A MANIFEST_PLANNED=()
 declare -A MANIFEST_RESULT=()
 declare -A MANIFEST_NOTES=()
 MANIFEST_COMPONENT_ORDER=(k3s helm cert_manager clusterissuer longhorn rancher registry nfs local_hosts docker_registry_trust)
+PUBLIC_MANIFEST_SETTINGS=(
+  host_os_id
+  host_os_version_id
+  host_os_codename
+  host_os_pretty_name
+  platform_support
+  bootstrap_mode
+  agent_server_url_provided
+  agent_cluster_token_provided
+  tls_mode
+  letsencrypt_environment
+  longhorn_replica_count
+  longhorn_minimal_available_percentage
+  longhorn_single_node_mode
+  registry_pvc_size
+  registry_storage_class_configured
+  registry_auth_enabled
+  nfs_manage
+  manage_local_hosts
+  trust_registry_in_docker
+  telemetry_enabled
+  telemetry_max_retries
+)
+PRIVATE_MANIFEST_SETTINGS=(
+  agent_server_url
+  base_domain
+  rancher_host
+  registry_host
+  longhorn_data_path
+  registry_storage_class
+  nfs_export_path
+  nfs_allowed_network
+)
 
 need_cmd() { command -v "$1" >/dev/null 2>&1; }
 pkg_installed() { dpkg -s "$1" >/dev/null 2>&1; }
 service_active() { systemctl is-active --quiet "$1" >/dev/null 2>&1; }
 mount_exists() { mountpoint -q "$1"; }
 can_use_tty() { [[ -t 0 && -t 1 && -r /dev/tty && -w /dev/tty ]]; }
+is_truthy() {
+  case "${1,,}" in
+    1|true|yes|y|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 k3s_server_active() { service_active k3s; }
 k3s_agent_active() { service_active k3s-agent; }
 
@@ -170,13 +219,13 @@ manifest_complete_component() {
 }
 
 init_run_manifest() {
-  local ts host_sanitized
+  local ts
   ts="$(date +%Y%m%d-%H%M%S)"
-  host_sanitized="$(hostname 2>/dev/null | tr -cs '[:alnum:]._-' '-')"
-  RUN_ID="${ts}-${host_sanitized}-$$"
+  RUN_ID="${ts}-$$-${RANDOM}${RANDOM}"
   RUN_STARTED_AT="$(date -Iseconds)"
   mkdir -p "$RUNS_DIR"
   RUN_MANIFEST="${RUNS_DIR}/bootstrap-${RUN_ID}.json"
+  RUN_PRIVATE_CONTEXT="${RUNS_DIR}/bootstrap-${RUN_ID}.private-context"
   MANIFEST_INITIALIZED=1
 }
 
@@ -195,14 +244,11 @@ write_run_manifest() {
     printf '  "exit_code": %s,\n' "$exit_code"
     printf '  "started_at": "%s",\n' "$(json_escape "$RUN_STARTED_AT")"
     printf '  "finished_at": "%s",\n' "$(date -Iseconds)"
-    printf '  "host": "%s",\n' "$(json_escape "$(hostname 2>/dev/null || echo unknown)")"
-    printf '  "user": "%s",\n' "$(json_escape "${USER:-unknown}")"
-    printf '  "cwd": "%s",\n' "$(json_escape "$PWD")"
     printf '  "current_step": "%s",\n' "$(json_escape "${CURRENT_STEP:-}")"
 
     printf '  "settings": {\n'
     local first=1 key
-    for key in host_os_id host_os_version_id host_os_codename host_os_pretty_name platform_support bootstrap_mode agent_server_url agent_cluster_token_provided base_domain rancher_host registry_host tls_mode letsencrypt_environment longhorn_data_path longhorn_replica_count longhorn_minimal_available_percentage longhorn_single_node_mode registry_pvc_size registry_storage_class registry_auth_enabled nfs_manage nfs_export_path nfs_allowed_network manage_local_hosts trust_registry_in_docker; do
+    for key in "${PUBLIC_MANIFEST_SETTINGS[@]}"; do
       [[ -n "${MANIFEST_SETTINGS[$key]+x}" ]] || continue
       if (( first == 0 )); then printf ',\n'; fi
       first=0
@@ -221,7 +267,7 @@ write_run_manifest() {
       printf '"detected_before": "%s", ' "$(json_escape "${MANIFEST_DETECTED[$component]:-unknown}")"
       printf '"planned_action": "%s", ' "$(json_escape "${MANIFEST_PLANNED[$component]:-unknown}")"
       printf '"result": "%s"' "$(json_escape "${MANIFEST_RESULT[$component]:-unknown}")"
-      if [[ -n "${MANIFEST_NOTES[$component]:-}" ]]; then
+      if [[ "$component" == "clusterissuer" && -n "${MANIFEST_NOTES[$component]:-}" ]]; then
         printf ', "note": "%s"' "$(json_escape "${MANIFEST_NOTES[$component]}")"
       fi
       printf '}'
@@ -230,6 +276,50 @@ write_run_manifest() {
     printf '}\n'
   } > "$tmp_file"
   mv "$tmp_file" "$RUN_MANIFEST"
+}
+
+write_private_run_context() {
+  local exit_code="${1:-0}"
+  [[ "$MANIFEST_INITIALIZED" == "1" ]] || return 0
+
+  local tmp_file
+  tmp_file="$(mktemp)"
+  {
+    printf '{\n'
+    printf '  "run_id": "%s",\n' "$(json_escape "$RUN_ID")"
+    printf '  "script": "scripts/bootstrap-k3s-stack.sh",\n'
+    printf '  "mode": "%s",\n' "$( [[ "$DRY_RUN" == "1" ]] && printf 'dry-run' || printf 'apply' )"
+    printf '  "status": "%s",\n' "$(json_escape "$RUN_STATUS")"
+    printf '  "exit_code": %s,\n' "$exit_code"
+    printf '  "started_at": "%s",\n' "$(json_escape "$RUN_STARTED_AT")"
+    printf '  "finished_at": "%s",\n' "$(date -Iseconds)"
+    printf '  "settings": {\n'
+    local first=1 key
+    for key in "${PRIVATE_MANIFEST_SETTINGS[@]}"; do
+      [[ -n "${MANIFEST_SETTINGS[$key]+x}" ]] || continue
+      if (( first == 0 )); then printf ',\n'; fi
+      first=0
+      printf '    "%s": "%s"' "$(json_escape "$key")" "$(json_escape "${MANIFEST_SETTINGS[$key]}")"
+    done
+    printf '\n  },\n'
+    printf '  "components": {\n'
+    first=1
+    local component
+    for component in "${MANIFEST_COMPONENT_ORDER[@]}"; do
+      [[ -n "${MANIFEST_NOTES[$component]:-}" ]] || continue
+      if [[ "$component" == "clusterissuer" ]]; then
+        continue
+      fi
+      if (( first == 0 )); then printf ',\n'; fi
+      first=0
+      printf '    "%s": {' "$(json_escape "$component")"
+      printf '"note": "%s"' "$(json_escape "${MANIFEST_NOTES[$component]}")"
+      printf '}'
+    done
+    printf '\n  }\n'
+    printf '}\n'
+  } > "$tmp_file"
+  mv "$tmp_file" "$RUN_PRIVATE_CONTEXT"
 }
 
 cleanup_exit() {
@@ -243,6 +333,47 @@ cleanup_exit() {
     RUN_STATUS="failed"
   fi
   write_run_manifest "$exit_code"
+  write_private_run_context "$exit_code"
+  if ! maybe_send_telemetry "$exit_code"; then
+    warn "Telemetry delivery did not complete successfully. Installation result is unchanged."
+  fi
+}
+
+maybe_send_telemetry() {
+  local exit_code="${1:-0}"
+  local sender_script="${SCRIPT_DIR}/send-telemetry.sh"
+
+  if ! is_truthy "${TELEMETRY_ENABLED:-false}"; then
+    return 0
+  fi
+
+  if [[ -z "${TELEMETRY_ENDPOINT:-}" ]]; then
+    warn "Telemetry is enabled but TELEMETRY_ENDPOINT is not set. Skipping telemetry delivery."
+    return 0
+  fi
+
+  if [[ ! -f "${RUN_MANIFEST:-}" ]]; then
+    warn "Telemetry is enabled but the public run manifest is unavailable. Skipping telemetry delivery."
+    return 1
+  fi
+
+  if [[ ! -x "$sender_script" ]]; then
+    warn "Telemetry sender script is missing or not executable: $sender_script"
+    return 1
+  fi
+
+  TELEMETRY_ENDPOINT="${TELEMETRY_ENDPOINT}" \
+  TELEMETRY_MAX_RETRIES="${TELEMETRY_MAX_RETRIES}" \
+  TELEMETRY_CONNECT_TIMEOUT_SECONDS="${TELEMETRY_CONNECT_TIMEOUT_SECONDS}" \
+  TELEMETRY_REQUEST_TIMEOUT_SECONDS="${TELEMETRY_REQUEST_TIMEOUT_SECONDS}" \
+  TELEMETRY_OUTBOX_DIR="${TELEMETRY_OUTBOX_DIR}" \
+  TELEMETRY_USER_AGENT="${TELEMETRY_USER_AGENT}" \
+  TELEMETRY_ENABLED="${TELEMETRY_ENABLED}" \
+  TELEMETRY_RUN_ID="${RUN_ID}" \
+  TELEMETRY_SOURCE_REPOSITORY="productive-k3s" \
+  TELEMETRY_SOURCE_SCRIPT="scripts/bootstrap-k3s-stack.sh" \
+  TELEMETRY_EXIT_CODE="${exit_code}" \
+  bash "$sender_script" "$RUN_MANIFEST"
 }
 
 prompt() {
@@ -1750,6 +1881,8 @@ main() {
     warn "Running in dry-run mode. No changes will be applied."
   fi
   manifest_set_setting "bootstrap_mode" "$MODE"
+  manifest_set_setting "telemetry_enabled" "$(is_truthy "${TELEMETRY_ENABLED:-false}" && printf 'y' || printf 'n')"
+  manifest_set_setting "telemetry_max_retries" "${TELEMETRY_MAX_RETRIES}"
   local k3s_detected_state="missing"
   local helm_detected_state="missing"
 
@@ -2066,6 +2199,7 @@ main() {
   fi
 
   manifest_set_setting "agent_server_url" "$AGENT_SERVER_URL"
+  manifest_set_setting "agent_server_url_provided" "$( [[ -n "$AGENT_SERVER_URL" ]] && echo y || echo n )"
   manifest_set_setting "agent_cluster_token_provided" "$( [[ -n "$AGENT_CLUSTER_TOKEN" ]] && echo y || echo n )"
   manifest_set_setting "base_domain" "$DOMAIN"
   manifest_set_setting "rancher_host" "$RANCHER_HOST"
@@ -2078,6 +2212,7 @@ main() {
   manifest_set_setting "longhorn_single_node_mode" "$SINGLE_NODE_LONGHORN_MODE"
   manifest_set_setting "registry_pvc_size" "$REGISTRY_SIZE"
   manifest_set_setting "registry_storage_class" "$REGISTRY_STORAGE_CLASS"
+  manifest_set_setting "registry_storage_class_configured" "$( [[ -n "$REGISTRY_STORAGE_CLASS" ]] && echo y || echo n )"
   manifest_set_setting "registry_auth_enabled" "$REGISTRY_AUTH_ENABLED"
   manifest_set_setting "nfs_manage" "$ENABLE_NFS"
   manifest_set_setting "nfs_export_path" "$NFS_EXPORT_PATH"
@@ -2253,4 +2388,6 @@ main() {
   print_dry_run_summary
 }
 
-main "$@"
+if [[ "${PRODUCTIVE_K3S_LIB_ONLY:-0}" != "1" ]]; then
+  main "$@"
+fi

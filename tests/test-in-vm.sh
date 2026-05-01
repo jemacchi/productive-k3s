@@ -20,6 +20,7 @@ ARTIFACTS_DIR="$REPO_DIR/test-artifacts"
 RUN_TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 ARTIFACT_BASENAME=""
 ARTIFACT_PATH=""
+PUBLIC_ARTIFACT_PATH=""
 ARTIFACT_STATUS="failed"
 BOOTSTRAP_MANIFEST_REMOTE=""
 BOOTSTRAP_MANIFEST_LOCAL=""
@@ -120,7 +121,7 @@ apply_platform_defaults() {
 }
 
 cleanup() {
-  write_artifact
+  write_artifacts
   if [[ "$KEEP_VM" == "y" || "$VM_CREATED" != "y" ]]; then
     return
   fi
@@ -206,6 +207,7 @@ parse_args() {
 
   ARTIFACT_BASENAME="test-in-vm-${RUN_TIMESTAMP}-${PROFILE}-${VM_NAME}"
   ARTIFACT_PATH="${ARTIFACTS_DIR}/${ARTIFACT_BASENAME}.json"
+  PUBLIC_ARTIFACT_PATH="${ARTIFACTS_DIR}/${ARTIFACT_BASENAME}-public.json"
 }
 
 ensure_artifacts_dir() {
@@ -222,7 +224,7 @@ json_escape() {
   printf '%s' "$s"
 }
 
-write_artifact() {
+write_local_artifact() {
   [[ -n "$ARTIFACT_PATH" ]] || return
   ensure_artifacts_dir
   cat > "$ARTIFACT_PATH" <<EOF
@@ -246,6 +248,33 @@ write_artifact() {
   "bootstrap_manifest_local": "$(json_escape "$BOOTSTRAP_MANIFEST_LOCAL")"
 }
 EOF
+}
+
+write_public_artifact() {
+  [[ -n "$PUBLIC_ARTIFACT_PATH" ]] || return
+  ensure_artifacts_dir
+  cat > "$PUBLIC_ARTIFACT_PATH" <<EOF
+{
+  "test_type": "vm",
+  "artifact_scope": "public",
+  "platform": "$(json_escape "$PLATFORM")",
+  "profile": "$(json_escape "$PROFILE")",
+  "vm_created": "$(json_escape "$VM_CREATED")",
+  "keep_vm": "$(json_escape "$KEEP_VM")",
+  "purge_on_cleanup": "$(json_escape "$PURGE_ON_CLEANUP")",
+  "image": "$(json_escape "$VM_IMAGE")",
+  "cpus": "$(json_escape "$VM_CPUS")",
+  "memory": "$(json_escape "$VM_MEMORY")",
+  "disk": "$(json_escape "$VM_DISK")",
+  "status": "$(json_escape "$ARTIFACT_STATUS")",
+  "bootstrap_manifest_copied": "$( [[ -n "$BOOTSTRAP_MANIFEST_LOCAL" ]] && printf 'y' || printf 'n' )"
+}
+EOF
+}
+
+write_artifacts() {
+  write_local_artifact
+  write_public_artifact
 }
 
 launch_vm() {
@@ -496,6 +525,7 @@ main() {
   ARTIFACT_STATUS="success"
   log "VM test completed successfully"
   log "Artifact written to: $ARTIFACT_PATH"
+  log "Public artifact written to: $PUBLIC_ARTIFACT_PATH"
   if [[ -n "$BOOTSTRAP_MANIFEST_LOCAL" ]]; then
     log "Bootstrap manifest copied to: $BOOTSTRAP_MANIFEST_LOCAL"
   fi
@@ -504,4 +534,6 @@ main() {
   fi
 }
 
-main "$@"
+if [[ "${PRODUCTIVE_K3S_LIB_ONLY:-0}" != "1" ]]; then
+  main "$@"
+fi

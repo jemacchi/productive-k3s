@@ -121,6 +121,7 @@ main() {
 
   echo "[INFO] Checking shell syntax"
   bash -n scripts/bootstrap-k3s-stack.sh
+  bash -n scripts/send-telemetry.sh
   bash -n tests/test-in-vm.sh
   bash -n scripts/rollback-k3s-stack.sh
   bash -n scripts/clean-k3s-stack.sh

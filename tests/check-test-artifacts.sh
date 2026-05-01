@@ -68,11 +68,16 @@ parse_args() {
 }
 
 collect_artifacts() {
-  find "$ARTIFACTS_DIR" -maxdepth 1 -type f -name "test-in-vm-*-${PROFILE}-*.json" ! -name "*-bootstrap-manifest.json" | sort
+  find "$ARTIFACTS_DIR" -maxdepth 1 -type f -name "test-in-vm-*.json" ! -name "*-bootstrap-manifest.json" ! -name "*-public.json" -print0 \
+    | xargs -0 -r jq -r --arg profile "$PROFILE" 'select(.profile == $profile) | input_filename' \
+    | sort
 }
 
 collect_manifests() {
-  find "$ARTIFACTS_DIR" -maxdepth 1 -type f -name "test-in-vm-*-${PROFILE}-*-bootstrap-manifest.json" | sort
+  find "$ARTIFACTS_DIR" -maxdepth 1 -type f -name "test-in-vm-*.json" ! -name "*-bootstrap-manifest.json" ! -name "*-public.json" -print0 \
+    | xargs -0 -r jq -r --arg profile "$PROFILE" 'select(.profile == $profile) | input_filename' \
+    | sed 's/\.json$/-bootstrap-manifest.json/' \
+    | sort
 }
 
 main() {

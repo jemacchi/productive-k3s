@@ -20,6 +20,7 @@ err(){ printf "\n%s[ERROR]%s %s\n" "$COLOR_RED" "$COLOR_RESET" "$*"; }
 
 MODE="plan"
 MANIFEST=""
+MANIFEST_PRIVATE_CONTEXT=""
 SUDO_KA_PID=""
 AUTO_APPROVE="n"
 declare -a PLAN_IDS=()
@@ -152,6 +153,18 @@ parse_args() {
 require_prereqs() {
   need_cmd jq || { err "jq is required."; exit 1; }
   [[ -f "$MANIFEST" ]] || { err "Manifest not found: $MANIFEST"; exit 1; }
+  if [[ "$MANIFEST" =~ \.private-context$ ]]; then
+    MANIFEST="${MANIFEST%.private-context}.json"
+  elif [[ "$MANIFEST" =~ -private\.json$ ]]; then
+    MANIFEST="${MANIFEST%-private.json}.json"
+  fi
+  [[ -f "$MANIFEST" ]] || { err "Public manifest not found: $MANIFEST"; exit 1; }
+
+  if [[ -f "${MANIFEST%.json}.private-context" ]]; then
+    MANIFEST_PRIVATE_CONTEXT="${MANIFEST%.json}.private-context"
+  elif [[ -f "${MANIFEST%.json}-private.json" ]]; then
+    MANIFEST_PRIVATE_CONTEXT="${MANIFEST%.json}-private.json"
+  fi
 }
 
 manifest_string() {
@@ -159,9 +172,27 @@ manifest_string() {
   jq -r "$jq_expr // empty" "$MANIFEST"
 }
 
+private_component_field() {
+  local component="$1" field="$2"
+  [[ -f "$MANIFEST_PRIVATE_CONTEXT" ]] || return 0
+  jq -r --arg c "$component" --arg f "$field" '.components[$c][$f] // empty' "$MANIFEST_PRIVATE_CONTEXT"
+}
+
+private_setting() {
+  local key="$1"
+  [[ -f "$MANIFEST_PRIVATE_CONTEXT" ]] || return 0
+  jq -r --arg k "$key" '.settings[$k] // empty' "$MANIFEST_PRIVATE_CONTEXT"
+}
+
 component_field() {
   local component="$1" field="$2"
-  jq -r --arg c "$component" --arg f "$field" '.components[$c][$f] // empty' "$MANIFEST"
+  local value
+  value="$(jq -r --arg c "$component" --arg f "$field" '.components[$c][$f] // empty' "$MANIFEST")"
+  if [[ -n "$value" ]]; then
+    printf '%s\n' "$value"
+    return 0
+  fi
+  private_component_field "$component" "$field"
 }
 
 manifest_mode() { manifest_string '.mode'; }
@@ -170,7 +201,13 @@ manifest_run_id() { manifest_string '.run_id'; }
 
 setting() {
   local key="$1"
-  jq -r --arg k "$key" '.settings[$k] // empty' "$MANIFEST"
+  local value
+  value="$(jq -r --arg k "$key" '.settings[$k] // empty' "$MANIFEST")"
+  if [[ -n "$value" ]]; then
+    printf '%s\n' "$value"
+    return 0
+  fi
+  private_setting "$key"
 }
 
 kubectl_k3s() { sudo k3s kubectl "$@"; }
@@ -541,4 +578,6 @@ main() {
   fi
 }
 
-main "$@"
+if [[ "${PRODUCTIVE_K3S_LIB_ONLY:-0}" != "1" ]]; then
+  main "$@"
+fi
