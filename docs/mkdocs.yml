@@ -1,0 +1,107 @@
+site_name: Productive K3S
+site_description: Public ecosystem documentation for Productive K3S, with bilingual documentation.
+site_author: Productive K3S
+site_url: https://productive-k3s.io/
+repo_url: https://github.com/jemacchi/productive-k3s
+repo_name: GitHub
+edit_uri: edit/main/docs/src/
+docs_dir: src
+site_dir: site
+
+theme:
+  name: material
+  custom_dir: src/overrides
+  language: en
+  favicon: assets/images/favicon.ico
+  features:
+    - navigation.tabs
+    - navigation.indexes
+    - navigation.path
+    - navigation.sections
+    - navigation.expand
+    - navigation.footer
+    - navigation.top
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+  palette:
+    - scheme: default
+      primary: white
+      accent: blue
+  font: false
+  icon:
+    repo: fontawesome/brands/github
+
+extra_css:
+  - assets/stylesheets/extra.css
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      title: On this page
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - English:
+      - Home: en/index.md
+      - Ecosystem:
+          - en/ecosystem/index.md
+          - Repository map: en/ecosystem/repositories.md
+          - Repository boundaries: en/ecosystem/boundaries.md
+      - Quickstarts:
+          - en/quickstarts/index.md
+          - Choosing your starting point: en/quickstarts/choosing-a-path.md
+          - Local-first path: en/quickstarts/local-first.md
+          - CLI-oriented path: en/quickstarts/cli-first.md
+      - Roadmap:
+          - en/roadmap/index.md
+          - Release direction: en/roadmap/release-direction.md
+  - Español:
+      - Inicio: es/index.md
+      - Ecosistema:
+          - es/ecosystem/index.md
+          - Mapa de repositorios: es/ecosystem/repositories.md
+          - Límites entre repositorios: es/ecosystem/boundaries.md
+      - Quickstarts:
+          - es/quickstarts/index.md
+          - Elegir un punto de entrada: es/quickstarts/choosing-a-path.md
+          - Camino local primero: es/quickstarts/local-first.md
+          - Camino orientado a CLI: es/quickstarts/cli-first.md
+      - Roadmap:
+          - es/roadmap/index.md
+          - Dirección de releases: es/roadmap/release-direction.md
+
+extra:
+  pk3s:
+    footer_slogan_en: "Productive K3S: the public entry point for the ecosystem across core, infra, cli, addons, and related documentation."
+    footer_slogan_es: "Productive K3S: el punto de entrada publico del ecosistema entre core, infra, cli, addons y la documentacion relacionada."
+    contact_label_en: "Contact"
+    contact_label_es: "Contacto"
+    contact_value: "contact@productive-k3s.io"
+    newsletter_label_en: "Newsletter"
+    newsletter_label_es: "Newsletter"
+    newsletter_placeholder_en: "E-mail"
+    newsletter_placeholder_es: "E-mail"
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/jemacchi/productive-k3s
