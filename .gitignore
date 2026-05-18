@@ -4,6 +4,8 @@
 node_modules/
 dist/
 build/
+docs/superpowers/
+superpowers/
 docs/site/
 docs/.venv/
 docs/.mkdocs.pid
