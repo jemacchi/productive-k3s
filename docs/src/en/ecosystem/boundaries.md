@@ -12,7 +12,11 @@ Owns the runtime and base installation engine, supported core addons, lifecycle 
 
 ## `productive-k3s-infra`
 
-Owns scenario assembly, infrastructure profiles, provisioning logic, OpenTofu and Ansible layers, and reusable infrastructure automation.
+Owns the runtime engine used to execute packaged profiles, plus provisioning logic, OpenTofu and Ansible layers, and reusable infrastructure automation.
+
+## `productive-k3s-profiles`
+
+Owns the public profile/scenario source tree that feeds package generation and engine compatibility testing.
 
 ## `productive-k3s-cli`
 
@@ -22,7 +26,7 @@ Owns the user-facing command line experience and should map users onto compatibl
 
 Owns optional integrations, experiments, and non-core extension paths.
 
-## `productive-k3s-infra-pro`
+## `productive-k3s-profiles-pro`
 
 Owns private or commercial profiles that should not be published through the public repositories.
 

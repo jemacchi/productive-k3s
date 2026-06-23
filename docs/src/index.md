@@ -14,7 +14,7 @@ sublead: "This repository acts as the public umbrella: ecosystem documentation, 
 sublead_es: "Este repositorio actúa como umbrella público: documentación del ecosistema, mapa de repositorios, quickstarts, posicionamiento y roadmap para toda la plataforma."
 primary_label: "View on GitHub"
 primary_label_es: "Ver en GitHub"
-primary_url: "https://github.com/jemacchi/productive-k3s"
+primary_url: "https://github.com/productive-k3s/productive-k3s"
 secondary_label: "Explore the ecosystem"
 secondary_label_es: "Explorar el ecosistema"
 secondary_url: "en/ecosystem/"
@@ -55,12 +55,12 @@ bridge_points_es:
 scenarios_title: "What you can do from here"
 scenarios_title_es: "Qué podés hacer desde acá"
 scenarios:
-  - Understand the split between core, infra, cli, addons, and infra-pro
+  - Understand the split between core, infra, cli, addons, and profiles-pro
   - Choose a practical starting point for installation or evaluation
   - Follow the public direction of the ecosystem
   - Reach the repository that owns the implementation you need
 scenarios_es:
-  - Entender la división entre core, infra, cli, addons e infra-pro
+  - Entender la división entre core, infra, cli, addons e profiles-pro
   - Elegir un punto de inicio práctico para instalación o evaluación
   - Seguir la dirección pública del ecosistema
   - Llegar al repositorio que posee la implementación que necesitás
@@ -84,16 +84,18 @@ environments_title: "Main ecosystem repositories"
 environments_title_es: "Repositorios principales del ecosistema"
 environments:
   - productive-k3s-core for runtime and base installation
-  - productive-k3s-infra for assembled infrastructure scenarios
+  - productive-k3s-infra for the infrastructure runtime engine
+  - productive-k3s-profiles for public profile and scenario sources
   - productive-k3s-cli for the user-facing command line
   - productive-k3s-addons for optional extensions and examples
-  - productive-k3s-infra-pro for private or commercial profiles
+  - productive-k3s-profiles-pro for private or commercial profiles
 environments_es:
   - productive-k3s-core para runtime e instalación base
-  - productive-k3s-infra para escenarios de infraestructura ensamblados
+  - productive-k3s-infra para el runtime engine de infraestructura
+  - productive-k3s-profiles para fuentes públicas de profiles y scenarios
   - productive-k3s-cli para la línea de comandos orientada al usuario
   - productive-k3s-addons para extensiones opcionales y ejemplos
-  - productive-k3s-infra-pro para perfiles privados o comerciales
+  - productive-k3s-profiles-pro para perfiles privados o comerciales
 not_title: "What this repository is not"
 not_title_es: "Qué no es este repositorio"
 not_items:

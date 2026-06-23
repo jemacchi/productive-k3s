@@ -16,7 +16,7 @@ Infrastructure automation, profiles, OpenTofu, Ansible, environment configuratio
 
 Unified command line interface over the Productive K3S ecosystem.
 
-## `productive-k3s-infra-pro`
+## `productive-k3s-profiles-pro`
 
 Private and monetizable infrastructure profiles and enterprise use cases.
 

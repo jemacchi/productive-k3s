@@ -12,7 +12,11 @@ Posee el runtime y el motor base de instalación, los addons core soportados, lo
 
 ## `productive-k3s-infra`
 
-Posee el ensamblado de escenarios, perfiles de infraestructura, lógica de provisioning, capas OpenTofu y Ansible, y automatización reusable.
+Posee el runtime engine usado para ejecutar profiles empaquetados, además de la lógica de provisioning, las capas OpenTofu y Ansible, y la automatización reusable.
+
+## `productive-k3s-profiles`
+
+Posee el árbol fuente público de profiles/scenarios que alimenta la generación de paquetes y las pruebas de compatibilidad del engine.
 
 ## `productive-k3s-cli`
 
@@ -22,7 +26,7 @@ Posee la experiencia de línea de comandos orientada al usuario y debería mapea
 
 Posee integraciones opcionales, experimentos y caminos de extensión no core.
 
-## `productive-k3s-infra-pro`
+## `productive-k3s-profiles-pro`
 
 Posee perfiles privados o comerciales que no deberían publicarse a través de los repositorios públicos.
 

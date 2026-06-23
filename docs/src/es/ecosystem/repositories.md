@@ -10,13 +10,17 @@ Motor central de instalación K3S y runtime base.
 
 ## [`productive-k3s-infra`](https://infra.productive-k3s.io/)
 
-Automatización de infraestructura, perfiles, OpenTofu, Ansible, configuración por entorno y ensamblado de escenarios.
+Runtime engine de infraestructura, empaquetado de profiles, capas de ejecución OpenTofu/Ansible y manejo de estado de profiles empaquetados.
+
+## `productive-k3s-profiles`
+
+Fuentes públicas de profiles y scenarios usadas para generar artefactos `profile.tgz` y validar compatibilidad con el engine de infra.
 
 ## [`productive-k3s-cli`](https://cli.productive-k3s.io/)
 
 Interfaz de línea de comandos unificada sobre el ecosistema Productive K3S.
 
-## `productive-k3s-infra-pro`
+## `productive-k3s-profiles-pro`
 
 Perfiles privados o monetizables de infraestructura y casos enterprise. Este repositorio intencionalmente no se enlaza desde el portal público.
 

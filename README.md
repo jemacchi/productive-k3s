@@ -21,11 +21,12 @@ This repository focuses on the public surface of that ecosystem:
 
 ## Ecosystem components
 
-- [`productive-k3s-core`](https://github.com/jemacchi/productive-k3s-core): core runtime and installation engine
-- [`productive-k3s-infra`](https://github.com/jemacchi/productive-k3s-infra): assembled infrastructure scenarios and automation
-- [`productive-k3s-cli`](https://github.com/jemacchi/productive-k3s-cli): unified command-line experience across the ecosystem
-- [`productive-k3s-addons`](https://github.com/jemacchi/productive-k3s-addons): optional extensions, examples, and non-core integrations
-- `productive-k3s-infra-pro`: private/commercial infrastructure layer
+- [`productive-k3s-core`](https://github.com/productive-k3s/productive-k3s-core): core runtime and installation engine
+- [`productive-k3s-infra`](https://github.com/productive-k3s/productive-k3s-infra): infrastructure runtime engine, packaging, and automation
+- `productive-k3s-profiles`: public profile/scenario source content
+- [`productive-k3s-cli`](https://github.com/productive-k3s/productive-k3s-cli): unified command-line experience across the ecosystem
+- [`productive-k3s-addons`](https://github.com/productive-k3s/productive-k3s-addons): optional extensions, examples, and non-core integrations
+- `productive-k3s-profiles-pro`: private/commercial infrastructure layer
 
 ## Local docs
 
