@@ -2,9 +2,10 @@
 
 Choose based on what you actually need:
 
-- If you want the technical foundation and base installation logic, start with `productive-k3s-core`.
-- If you want packaged infrastructure workflows around the core, start with `productive-k3s-infra`; if you are authoring or maintaining public scenario sources, use `productive-k3s-profiles`.
-- If you want the highest-level user experience, start with `productive-k3s-cli`.
-- If you are exploring optional extensions, continue with `productive-k3s-addons`.
+- If you want to start simple with a real Kubernetes base, start with `productive-k3s-core`.
+- If you want to deploy a complete solution over a platform, continue to `productive-k3s-infra`.
+- If you want curated solution paths such as on-prem over SSH or a simple AWS route, use `productive-k3s-profiles`.
+- If you want curated cluster extensions such as storage, registry, or management packages, continue with `productive-k3s-addons`.
+- If you want the simplest and recommended unified interface, start with `productive-k3s-cli`.
 
-Use this portal to understand the split. Use the owning repositories to execute the real workflow.
+Use this portal to understand the model first. Use the owning repositories to execute the real workflow.

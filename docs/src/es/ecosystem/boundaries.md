@@ -8,27 +8,23 @@ Posee la explicación del ecosistema, la navegación pública, el roadmap, los q
 
 ## `productive-k3s-core`
 
-Posee el runtime y el motor base de instalación, los addons core soportados, los scripts de lifecycle y la validación técnica de la plataforma base.
+Posee el contrato base de instalación Kubernetes, los modos de ensamblado del cluster y la instalación de paquetes de addons o stacks.
 
 ## `productive-k3s-infra`
 
-Posee el runtime engine usado para ejecutar profiles empaquetados, además de la lógica de provisioning, las capas OpenTofu y Ansible, y la automatización reusable.
+Posee la capa de despliegue y orquestación que interpreta caminos curados de solución sobre Core.
 
 ## `productive-k3s-profiles`
 
-Posee el árbol fuente público de profiles/scenarios que alimenta la generación de paquetes y las pruebas de compatibilidad del engine.
+Posee las soluciones curadas públicas de despliegue y el árbol fuente que las define.
 
 ## `productive-k3s-cli`
 
-Posee la experiencia de línea de comandos orientada al usuario y debería mapear a los usuarios hacia bundles compatibles de core e infra.
+Posee la interfaz de comandos orientada a usuarios más simple y recomendada para todo el ecosistema.
 
 ## `productive-k3s-addons`
 
-Posee integraciones opcionales, experimentos y caminos de extensión no core.
-
-## `productive-k3s-profiles-pro`
-
-Posee perfiles privados o comerciales que no deberían publicarse a través de los repositorios públicos.
+Posee extensiones curadas del cluster que Core puede instalar como addons o stacks agrupados.
 
 ## Regla general
 

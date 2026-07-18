@@ -8,6 +8,6 @@ Depending on the publishing strategy, this may include:
 - static pages
 - landing copy
 - navigation structure
-- public documentation entry points
+- public documentation paths
 
-The website should act as the public-facing entry point for the ecosystem.
+The website should act as the public-facing product path for the ecosystem.
