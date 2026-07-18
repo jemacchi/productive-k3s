@@ -1,6 +1,12 @@
 # Quickstarts
 
-Estos quickstarts ayudan a elegir una puerta de entrada al ecosistema Productive K3S sin fingir que todos los repositorios resuelven el mismo problema.
+Estos quickstarts ayudan a elegir un camino práctico de entrada después de entender el modelo de Productive K3S.
+
+La idea es simple:
+
+- empezar por el camino que resuelve tu necesidad inmediata;
+- mantener entendible el resto del ecosistema;
+- evitar tratar a todos los repositorios como si resolvieran el mismo problema.
 
 ## Páginas
 

@@ -2,7 +2,7 @@ site_name: Productive K3S
 site_description: Public ecosystem documentation for Productive K3S, with bilingual documentation.
 site_author: Productive K3S
 site_url: https://productive-k3s.io/
-repo_url: https://github.com/jemacchi/productive-k3s
+repo_url: https://github.com/productive-k3s/productive-k3s
 repo_name: GitHub
 edit_uri: edit/main/docs/src/
 docs_dir: src
@@ -82,19 +82,19 @@ nav:
           - es/ecosystem/index.md
           - Mapa de repositorios: es/ecosystem/repositories.md
           - Límites entre repositorios: es/ecosystem/boundaries.md
-      - Quickstarts:
+      - Primeros pasos:
           - es/quickstarts/index.md
           - Elegir un punto de entrada: es/quickstarts/choosing-a-path.md
           - Camino local primero: es/quickstarts/local-first.md
           - Camino orientado a CLI: es/quickstarts/cli-first.md
-      - Roadmap:
+      - Hoja de ruta:
           - es/roadmap/index.md
           - Dirección de releases: es/roadmap/release-direction.md
 
 extra:
   pk3s:
-    footer_slogan_en: "Productive K3S: the public entry point for the ecosystem across core, infra, cli, addons, and related documentation."
-    footer_slogan_es: "Productive K3S: el punto de entrada publico del ecosistema entre core, infra, cli, addons y la documentacion relacionada."
+    footer_slogan_en: "Productive K3S: the public product path across core, infra, cli, addons, and related documentation."
+    footer_slogan_es: "Productive K3S: el camino publico de producto entre core, infra, cli, addons y la documentacion relacionada."
     contact_label_en: "Contact"
     contact_label_es: "Contacto"
     contact_value: "contact@productive-k3s.io"
@@ -104,4 +104,4 @@ extra:
     newsletter_placeholder_es: "E-mail"
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/jemacchi/productive-k3s
+      link: https://github.com/productive-k3s/productive-k3s

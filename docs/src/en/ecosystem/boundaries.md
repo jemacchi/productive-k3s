@@ -8,23 +8,23 @@ Owns ecosystem explanation, public navigation, roadmap, quickstarts, and public-
 
 ## `productive-k3s-core`
 
-Owns the runtime and base installation engine, supported core addons, lifecycle scripts, and technical validation of the core platform.
+Owns the base Kubernetes installation contract, cluster assembly modes, and addon or stack package installation.
 
 ## `productive-k3s-infra`
 
-Owns scenario assembly, infrastructure profiles, provisioning logic, OpenTofu and Ansible layers, and reusable infrastructure automation.
+Owns the deployment and orchestration layer that interprets curated solution paths on top of Core.
+
+## `productive-k3s-profiles`
+
+Owns the curated public deployment solutions and the source tree that defines them.
 
 ## `productive-k3s-cli`
 
-Owns the user-facing command line experience and should map users onto compatible core and infra bundles.
+Owns the simplest and recommended user-facing command interface across the ecosystem.
 
 ## `productive-k3s-addons`
 
-Owns optional integrations, experiments, and non-core extension paths.
-
-## `productive-k3s-infra-pro`
-
-Owns private or commercial profiles that should not be published through the public repositories.
+Owns curated cluster extensions that Core can install as addons or grouped stacks.
 
 ## Rule of thumb
 

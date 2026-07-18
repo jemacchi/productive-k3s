@@ -2,24 +2,24 @@
 
 ## [`productive-k3s`](https://productive-k3s.io/)
 
-Umbrella repository for documentation, roadmap, positioning, ecosystem overview, and public entry points.
+Public product path for the ecosystem: positioning, conceptual model, roadmap, and recommended ways to start.
 
 ## [`productive-k3s-core`](https://core.productive-k3s.io/)
 
-Core K3S installation engine and base runtime.
+The simple starting point: install a real Kubernetes base and extend it with curated addons and stacks.
 
 ## [`productive-k3s-infra`](https://infra.productive-k3s.io/)
 
-Infrastructure automation, profiles, OpenTofu, Ansible, environment configuration, and scenario assembly.
+The deployment and orchestration layer: turn the base Kubernetes contract into complete solution paths across platforms.
+
+## [`productive-k3s-profiles`](https://profiles.productive-k3s.io/)
+
+Curated deployment solutions and scenario paths, such as existing hosts over SSH or a simple AWS single-node route.
 
 ## [`productive-k3s-cli`](https://cli.productive-k3s.io/)
 
-Unified command line interface over the Productive K3S ecosystem.
-
-## `productive-k3s-infra-pro`
-
-Private and monetizable infrastructure profiles and enterprise use cases. This repository is intentionally not linked from the public portal.
+The simplest and recommended unified interface for using the ecosystem.
 
 ## [`productive-k3s-addons`](https://addons.productive-k3s.io/)
 
-Optional addons, integrations, examples, and experimental stacks.
+Curated packages for extending the cluster with capabilities such as storage, registry, ingress, certificates, and management surfaces.

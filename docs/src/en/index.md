@@ -1,10 +1,10 @@
 # Productive K3S
 
-`productive-k3s` is the umbrella repository for the Productive K3S ecosystem.
+`productive-k3s` is the public product path for the Productive K3S ecosystem.
 
-Productive K3S is an opinionated ecosystem for building, installing, operating, and extending lightweight Kubernetes environments based on K3S.
+Productive K3S is a pragmatic path to real Kubernetes without the usual pain.
 
-This repository does not contain the core installation engine itself. Instead, it acts as the public entry point for the ecosystem:
+This repository does not contain the base installation or deployment layers themselves. Instead, it acts as the public path for the ecosystem:
 
 - documentation;
 - positioning;
