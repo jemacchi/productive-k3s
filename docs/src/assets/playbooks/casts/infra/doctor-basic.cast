@@ -1,0 +1,7 @@
+{"version": 2, "width": 140, "height": 36, "timestamp": 1788422400, "title": "infra playbook: doctor basic", "env": {"TERM": "xterm-256color", "SHELL": "/bin/bash"}}
+[0.0, "o", "$ bash playbooks/infra/scripts/09-doctor-basic.sh --execute\r\n"]
+[0.12, "o", "# Run the basic Infra doctor check with the local profiles checkout wired\r\n"]
+[0.34, "o", "[pk3s-infra] OK    bash is available\r\n"]
+[0.46, "o", "[pk3s-infra] OK    make is available\r\n"]
+[0.58, "o", "[pk3s-infra] OK    productive-k3s-profiles checkout found: /home/jmacchi/prg/jemacchi/productive-k3s-env/productive-k3s-ops/repos/productive-k3s-profiles\r\n"]
+[0.76, "o", "$ "]

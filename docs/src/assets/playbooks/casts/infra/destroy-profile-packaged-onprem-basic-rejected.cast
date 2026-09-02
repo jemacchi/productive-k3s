@@ -1,0 +1,5 @@
+{"version": 2, "width": 140, "height": 36, "timestamp": 1788422400, "title": "infra playbook: destroy profile packaged onprem basic rejected", "env": {"TERM": "xterm-256color", "SHELL": "/bin/bash"}}
+[0.0, "o", "$ PRODUCTIVE_K3S_INFRA_PLAYBOOK_PROFILE_TGZ=release-output/profiles/public/on-prem-basic-594a7c9.tgz bash playbooks/infra/scripts/13-destroy-profile-packaged-onprem-basic-rejected.sh --execute\r\n"]
+[0.12, "o", "# Show the packaged onprem-basic destroy guardrail\r\n"]
+[0.34, "o", "[pk3s-infra] ERROR unsupported packaged profile command 'destroy' for scenario 'onprem-basic'\r\n"]
+[0.52, "o", "$ "]

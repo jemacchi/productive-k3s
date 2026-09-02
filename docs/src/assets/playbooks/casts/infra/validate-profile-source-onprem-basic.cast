@@ -1,0 +1,8 @@
+{"version": 2, "width": 140, "height": 34, "timestamp": 1787965000, "title": "infra playbook: validate profile source onprem basic", "env": {"TERM": "xterm-256color", "SHELL": "/bin/bash"}}
+[0.0, "o", "$ bash playbooks/infra/scripts/03-validate-profile-source-onprem-basic.sh --execute\r\n"]
+[0.18, "o", "# Validate the on-prem basic source profile contract\r\n"]
+[0.5, "o", "[pk3s-infra] INFO  Loading profile: /home/jmacchi/prg/jemacchi/productive-k3s-env/productive-k3s-ops/repos/productive-k3s-profiles/profiles/edge/on-prem/basic.env\r\n"]
+[0.68, "o", "[pk3s-infra] INFO  Scenario: onprem-basic\r\n"]
+[0.86, "o", "[pk3s-infra] INFO  Engine: ansible\r\n"]
+[1.04, "o", "[pk3s-infra] OK    Profile validation passed\r\n"]
+[1.29, "o", "$ "]

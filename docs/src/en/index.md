@@ -11,10 +11,12 @@ This repository does not contain the base installation or deployment layers them
 - roadmap;
 - repository map;
 - quickstarts;
+- playbooks;
 - public ecosystem guidance.
 
 ## Start here
 
 - [Explore the ecosystem](ecosystem/index.md)
 - [Choose a quickstart path](quickstarts/index.md)
+- [Browse runnable playbooks](playbooks/index.md)
 - [Review the public roadmap](roadmap/index.md)

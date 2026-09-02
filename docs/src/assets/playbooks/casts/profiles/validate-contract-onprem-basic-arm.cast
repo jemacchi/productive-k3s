@@ -1,0 +1,11 @@
+{"version": 2, "width": 140, "height": 36, "timestamp": 1788422400, "title": "profiles playbook: validate-contract-onprem-basic-arm", "env": {"TERM": "xterm-256color", "SHELL": "/bin/bash"}}
+[0.0, "o", "$ bash playbooks/profiles/scripts/10-validate-contract-onprem-basic-arm.sh --execute\r\n"]
+[0.12, "o", "[2026-08-31 20:45:22-0300] [STAGE:matrix] [2026-08-31 20:45:22-0300] [INFO] scenario=onprem-basic-arm level=contract target=scenario-test-contract\r\n"]
+[0.24, "o", "[2026-08-31 20:45:22-0300] [STAGE:matrix] [2026-08-31 20:45:22-0300] [PASS] onprem-basic-arm scenario-test-contract duration=0s\r\n"]
+[0.36, "o", "[2026-08-31 20:45:22-0300] [STAGE:matrix] [2026-08-31 20:45:22-0300] make[3]: Entering directory '/tmp/tmp.xY9L4HH1eI/productive-k3s-profiles/scenarios/edge/onprem-basic-arm'\r\n"]
+[0.48, "o", "[2026-08-31 20:45:22-0300] [STAGE:matrix] [2026-08-31 20:45:22-0300] /tmp/tmp.xY9L4HH1eI/productive-k3s-profiles/scenarios/edge/onprem-basic-arm/../../../tests/contract-check.sh onprem-basic-arm\r\n"]
+[0.6, "o", "[2026-08-31 20:45:22-0300] [STAGE:matrix] [2026-08-31 20:45:22-0300] [PASS] contract checks for onprem-basic-arm\r\n"]
+[0.72, "o", "[2026-08-31 20:45:22-0300] [STAGE:matrix] [2026-08-31 20:45:22-0300] make[3]: Leaving directory '/tmp/tmp.xY9L4HH1eI/productive-k3s-profiles/scenarios/edge/onprem-basic-arm'\r\n"]
+[0.84, "o", "[2026-08-31 20:45:22-0300] [STAGE:matrix] make[2]: Leaving directory '/tmp/pk3s-isolated-productive-k3s-profiles-St6kyH/productive-k3s-profiles/tests'\r\n"]
+[0.96, "o", "[2026-08-31 20:45:22-0300] [STAGE:matrix] make[1]: Leaving directory '/tmp/pk3s-isolated-productive-k3s-profiles-St6kyH/productive-k3s-profiles/tests'\r\n"]
+[1.14, "o", "$ "]

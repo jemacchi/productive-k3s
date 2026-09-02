@@ -1,0 +1,2 @@
+{"version": 2, "width": 80, "height": 24, "timestamp": 1787611414, "env": {"SHELL": "/bin/bash", "TERM": null}, "title": "core playbook: stack export base"}
+[0.0, "o", "$ ./productive-k3s-core.sh stack export --tgz '/home/ubuntu/real-20260824-vm1/base-stack.tgz' --output '/home/ubuntu/real-20260824-vm1/base-installer'\r\n$ "]

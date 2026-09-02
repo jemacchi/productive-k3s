@@ -5,6 +5,7 @@
     {"label": "Inicio", "url": home_root ~ "?lang=es", "key": "home"},
     {"label": "Ecosistema", "url": "es/ecosystem/", "key": "ecosystem"},
     {"label": "Quickstarts", "url": "es/quickstarts/", "key": "quickstarts"},
+    {"label": "Playbooks", "url": "es/playbooks/", "key": "playbooks"},
     {"label": "Roadmap", "url": "es/roadmap/", "key": "roadmap"},
   ] %}
 {% else %}
@@ -12,6 +13,7 @@
     {"label": "Home", "url": home_root, "key": "home"},
     {"label": "Ecosystem", "url": "en/ecosystem/", "key": "ecosystem"},
     {"label": "Quickstarts", "url": "en/quickstarts/", "key": "quickstarts"},
+    {"label": "Playbooks", "url": "en/playbooks/", "key": "playbooks"},
     {"label": "Roadmap", "url": "en/roadmap/", "key": "roadmap"},
   ] %}
 {% endif %}
@@ -23,6 +25,8 @@
     {% set current_key = 'ecosystem' %}
   {% elif '/quickstarts/' in page.url %}
     {% set current_key = 'quickstarts' %}
+  {% elif '/playbooks/' in page.url %}
+    {% set current_key = 'playbooks' %}
   {% elif '/roadmap/' in page.url %}
     {% set current_key = 'roadmap' %}
   {% else %}

@@ -11,10 +11,12 @@ Este repositorio no contiene por sí mismo la capa base de instalación ni la de
 - roadmap;
 - mapa de repositorios;
 - quickstarts;
+- playbooks;
 - orientación pública del ecosistema.
 
 ## Empezar por acá
 
 - [Explorar el ecosistema](ecosystem/index.md)
 - [Elegir un quickstart](quickstarts/index.md)
+- [Ver playbooks ejecutables](playbooks/index.md)
 - [Revisar el roadmap público](roadmap/index.md)

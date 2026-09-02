@@ -1,0 +1,9 @@
+{"version": 2, "width": 140, "height": 30, "timestamp": 1788422400, "title": "infra playbook: validate profile packaged aws single node", "env": {"TERM": "xterm-256color", "SHELL": "/bin/bash"}}
+[0.0, "o", "$ PRODUCTIVE_K3S_INFRA_PLAYBOOK_PROFILE_TGZ=release-output/profiles/public/aws-single-node-basic-594a7c9.tgz bash playbooks/infra/scripts/22-validate-profile-packaged-aws-single-node.sh --execute\r\n"]
+[0.12, "o", "# Validate an explicit packaged aws-single-node profile.tgz\r\n"]
+[0.34, "o", "[pk3s-infra] INFO  Profile package: aws-single-node-basic\r\n"]
+[0.46, "o", "[pk3s-infra] INFO  Scenario: aws-single-node\r\n"]
+[0.58, "o", "[pk3s-infra] INFO  Engine: opentofu\r\n"]
+[0.7, "o", "[pk3s-infra] INFO  Install script: scripts/install.sh\r\n"]
+[0.82, "o", "[pk3s-infra] OK    Profile package validation passed\r\n"]
+[1.0, "o", "$ "]
