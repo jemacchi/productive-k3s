@@ -1,0 +1,11 @@
+{"version": 2, "width": 80, "height": 24, "timestamp": 1787613859, "env": {"SHELL": "/bin/bash", "TERM": null}, "title": "core playbook: backup local cluster"}
+[0.0, "o", "$ ./productive-k3s-core.sh backup /tmp/pk3s-core-playbook-backup\r\n"]
+[0.022, "o", "\u001b[1;32m[+] Writing backup to /tmp/pk3s-core-playbook-backup\u001b[0m\r\n"]
+[0.023, "o", "\u001b[1;32m[+] Exporting cluster-wide resources\u001b[0m\r\n"]
+[7.481, "o", "\u001b[1;32m[+] Exporting namespace kube-system\u001b[0m\r\n"]
+[8.207, "o", "\u001b[1;32m[+] Exporting k3s host-side config\u001b[0m\r\n"]
+[8.221, "o", "\u001b[1;32m[+] Exporting host config\u001b[0m\r\n"]
+[8.238, "o", "\u001b[1;32m[+] Creating archive /tmp/pk3s-core-playbook-backup.tar.gz\u001b[0m\r\n"]
+[8.243, "o", "\u001b[1;32m[+] Backup complete\u001b[0m\r\n"]
+[8.243, "o", "  Directory: /tmp/pk3s-core-playbook-backup\r\n"]
+[8.243, "o", "  Archive:   /tmp/pk3s-core-playbook-backup.tar.gz\r\n$ "]

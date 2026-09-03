@@ -1,0 +1,2292 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Public ecosystem documentation for Productive K3S, with bilingual documentation.">
+      
+      
+        <meta name="author" content="Productive K3S">
+      
+      
+        <link rel="canonical" href="https://productive-k3s.io/">
+      
+      
+      
+        <link rel="next" href="en/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="assets/images/favicon.ico">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Productive K3S - Productive K3S</title>
+      
+    
+    
+      <link rel="stylesheet" href="assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="assets/stylesheets/extra.css">
+    
+      <link rel="stylesheet" href="assets/playbooks/vendor/asciinema-player.css">
+    
+      <link rel="stylesheet" href="assets/playbooks/playbooks.css">
+    
+    <script>__md_scope=new URL(".",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --md-text-font: "Inter";
+      --md-code-font: "JetBrains Mono";
+    }
+  </style>
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      var form = document.querySelector("[data-pk3s-newsletter-form]");
+      if (!form) {
+        return;
+      }
+
+      var input = form.querySelector("input[name='email']");
+      var button = form.querySelector("button[type='submit']");
+      var message = form.querySelector("[data-pk3s-newsletter-message]");
+      var isSpanish = document.documentElement.lang === "es" || window.location.pathname.indexOf("/es/") === 0;
+
+      function datasetValue(key) {
+        return form.dataset[key + (isSpanish ? "Es" : "En")] || "";
+      }
+
+      function setMessage(kind, text) {
+        if (!message) {
+          return;
+        }
+        message.textContent = text;
+        message.classList.remove("is-success", "is-error");
+        if (kind) {
+          message.classList.add(kind === "success" ? "is-success" : "is-error");
+        }
+      }
+
+      form.addEventListener("submit", async function (event) {
+        event.preventDefault();
+
+        if (!input || !button) {
+          return;
+        }
+
+        if (!input.checkValidity()) {
+          setMessage("error", datasetValue("pk3sNewsletterInvalid"));
+          input.focus();
+          return;
+        }
+
+        var apiBaseUrl = form.dataset.pk3sNewsletterApiBaseUrl || "";
+        if (!apiBaseUrl) {
+          setMessage("error", datasetValue("pk3sNewsletterError"));
+          return;
+        }
+
+        button.disabled = true;
+        setMessage("", "");
+
+        try {
+          var response = await fetch(apiBaseUrl.replace(/\/$/, "") + "/subscribe", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              email: input.value.trim(),
+              source: window.location.hostname
+            })
+          });
+
+          if (!response.ok) {
+            throw new Error("newsletter_submit_failed");
+          }
+
+          var payload = await response.json();
+          if (payload && payload.accepted) {
+            setMessage("success", payload.duplicate ? datasetValue("pk3sNewsletterDuplicate") : datasetValue("pk3sNewsletterSuccess"));
+            form.reset();
+          } else {
+            setMessage("error", datasetValue("pk3sNewsletterError"));
+          }
+        } catch (error) {
+          setMessage("error", datasetValue("pk3sNewsletterError"));
+        } finally {
+          button.disabled = false;
+        }
+      });
+    });
+  </script>
+
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="white" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+
+
+  
+  
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="." title="Productive K3S" class="md-header__button md-logo" aria-label="Productive K3S" data-md-component="logo">
+      <img src="assets/images/productive-k3s-icon-square-0.3x.png" alt="Productive K3S" />
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Productive K3S
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Productive K3S
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    <div class="pk3s-header-actions">
+      
+        <div class="md-header__source">
+          <a href="https://github.com/productive-k3s/productive-k3s" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+        </div>
+      
+      <div class="pk3s-lang-switch" aria-label="Language selector">
+        <a class="" href=".">EN</a>
+        <span aria-hidden="true">|</span>
+        <a class="" href=".?lang=es">ES</a>
+      </div>
+    </div>
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+  
+
+
+  
+
+
+
+  
+
+
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        <li class="md-tabs__item md-tabs__item--active">
+          <a href="." class="md-tabs__link">
+            Home
+          </a>
+        </li>
+      
+        <li class="md-tabs__item">
+          <a href="en/ecosystem/" class="md-tabs__link">
+            Ecosystem
+          </a>
+        </li>
+      
+        <li class="md-tabs__item">
+          <a href="en/quickstarts/" class="md-tabs__link">
+            Quickstarts
+          </a>
+        </li>
+      
+        <li class="md-tabs__item">
+          <a href="en/playbooks/" class="md-tabs__link">
+            Playbooks
+          </a>
+        </li>
+      
+        <li class="md-tabs__item">
+          <a href="en/roadmap/" class="md-tabs__link">
+            Roadmap
+          </a>
+        </li>
+      
+    </ul>
+  </div>
+</nav>
+  <section class="pk3s-hero">
+    <div class="pk3s-container pk3s-hero-grid">
+      <div class="pk3s-hero-copy">
+        <div class="pk3s-eyebrow" data-pk3s-text="eyebrow">Public product path for the Productive K3S ecosystem</div>
+        <h1 data-pk3s-text="hero_title">Productive K3S</h1>
+        <p class="pk3s-lead" data-pk3s-text="lead">Productive K3S is a pragmatic path to real Kubernetes without the usual pain.</p>
+        <p class="pk3s-sublead" data-pk3s-text="sublead">Start simple, grow modularly, and follow a clear path across the base platform, deployment layer, curated solutions, cluster extensions, and the recommended CLI experience.</p>
+        <div class="pk3s-actions">
+          <a class="md-button md-button--primary" href="https://github.com/productive-k3s/productive-k3s" data-pk3s-text="primary_label">View on GitHub</a>
+          <a class="md-button" href="en/ecosystem/" data-pk3s-text="secondary_label">Understand the model</a>
+        </div>
+      </div>
+      <aside class="pk3s-card pk3s-hero-card">
+        <h2 data-pk3s-text="card_title">What Productive K3S gives you</h2>
+        <ul data-pk3s-list="card_items">
+          <li>A simple starting point for real Kubernetes</li><li>A modular path that can grow with your needs</li><li>Curated deployment and extension layers instead of ad hoc assembly</li><li>One recommended CLI experience on top of independent components</li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+                
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" hidden>
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="." title="Productive K3S" class="md-nav__button md-logo" aria-label="Productive K3S" data-md-component="logo">
+      <img src="assets/images/productive-k3s-icon-square-0.3x.png" alt="Productive K3S" />
+    </a>
+    Productive K3S
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/productive-k3s/productive-k3s" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+      
+      <a href="." class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="en/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    English
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    English
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="en/ecosystem/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ecosystem
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2_2" id="__nav_2_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Ecosystem
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="en/ecosystem/repositories/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repository map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="en/ecosystem/boundaries/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repository boundaries
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="en/quickstarts/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstarts
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2_3" id="__nav_2_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Quickstarts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="en/quickstarts/choosing-a-path/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Choosing your starting point
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="en/quickstarts/local-first/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local-first path
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="en/quickstarts/cli-first/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI-oriented path
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="en/playbooks/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Playbooks
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2_4" id="__nav_2_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Playbooks
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="en/playbooks/core/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Core
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="en/playbooks/addons/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Addons
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="en/playbooks/infra/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Infra
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="en/playbooks/profiles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Profiles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="en/playbooks/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="en/roadmap/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2_5" id="__nav_2_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Roadmap
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="en/roadmap/release-direction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release direction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="es/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Español
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Español
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="es/ecosystem/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ecosistema
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3_2" id="__nav_3_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Ecosistema
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="es/ecosystem/repositories/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Mapa de repositorios
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="es/ecosystem/boundaries/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Límites entre repositorios
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="es/quickstarts/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Primeros pasos
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Primeros pasos
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="es/quickstarts/choosing-a-path/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Elegir un punto de entrada
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="es/quickstarts/local-first/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Camino local primero
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="es/quickstarts/cli-first/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Camino orientado a CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="es/playbooks/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Playbooks
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3_4" id="__nav_3_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Playbooks
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="es/playbooks/core/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Core
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="es/playbooks/addons/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Addons
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="es/playbooks/infra/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Infra
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="es/playbooks/profiles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Profiles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="es/playbooks/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="es/roadmap/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hoja de ruta
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Hoja de ruta
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="es/roadmap/release-direction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dirección de releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+                
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" hidden>
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+  
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+  <div class="md-content pk3s-home-shell" data-md-component="content">
+    <article class="md-content__inner md-typeset pk3s-home">
+      <section class="pk3s-home-section">
+        <h2 data-pk3s-text="why_title">Why this repository exists</h2>
+        <div class="pk3s-option-grid">
+          
+          
+          <article class="pk3s-card pk3s-option-card">
+            <div class="pk3s-option-label" data-pk3s-text="why_option_0_label">REAL KUBERNETES</div>
+            <p data-pk3s-text="why_option_0_text">Teams want real Kubernetes capabilities without starting from a painful operational jump.</p>
+          </article>
+          <div class="pk3s-gap-divider" aria-hidden="true">
+            <span class="pk3s-gap-divider__horizontal">↔</span>
+            <span class="pk3s-gap-divider__vertical">↕</span>
+          </div>
+          <article class="pk3s-card pk3s-option-card">
+            <div class="pk3s-option-label" data-pk3s-text="why_option_1_label">CLEAR PATH</div>
+            <p data-pk3s-text="why_option_1_text">Users still need one place to understand the model, start simply, and move across the ecosystem without losing continuity.</p>
+          </article>
+        </div>
+        <p class="pk3s-bridge-note" data-pk3s-text="bridge_note">Productive K3S is the public path that connects those pieces into one product story.</p>
+        <div class="pk3s-pill-grid" data-pk3s-list="bridge_points" data-pk3s-list-class="pk3s-pill">
+          <div class="pk3s-pill">Explain the conceptual model before the technical detail</div><div class="pk3s-pill">Show how the pieces fit without forcing one single interface</div><div class="pk3s-pill">Guide users toward the right starting path</div>
+        </div>
+      </section>
+
+      <section class="pk3s-home-section pk3s-two-col">
+        <article class="pk3s-card">
+          <h2 data-pk3s-text="scenarios_title">Component map</h2>
+          <ul data-pk3s-list="scenarios">
+            <li>Core: start with a real Kubernetes base in the simplest practical way</li><li>Infra: deploy complete solutions on different platforms</li><li>Profiles: use curated solutions ready to deploy</li><li>Addons: extend the cluster with curated packages</li><li>CLI: use the simplest and recommended unified interface</li>
+          </ul>
+        </article>
+        <article class="pk3s-card">
+          <h2 data-pk3s-text="principles_title">Portal principles</h2>
+          <ul data-pk3s-list="principles" data-pk3s-list-type="principles">
+            <li><strong>Solution-first</strong>: start with what the ecosystem enables before diving into how the internals are split</li><li><strong>Repository-linked</strong>: technical depth belongs in the owning repository, not duplicated here</li><li><strong>Bilingual path</strong>: English and Spanish remain first-class for the public path into the ecosystem</li>
+          </ul>
+        </article>
+      </section>
+
+      <section class="pk3s-home-section pk3s-two-col">
+        <article class="pk3s-card">
+          <h2 data-pk3s-text="environments_title">Recommended ways to start</h2>
+          <ul data-pk3s-list="environments">
+            <li>I want to start simple: begin with Productive K3S Core</li><li>I want to deploy a complete solution: continue to Infra and Profiles</li><li>I want one recommended interface for the whole experience: use Productive K3S CLI</li><li>I want to understand how the pieces fit: open the ecosystem model pages</li>
+          </ul>
+        </article>
+        <article class="pk3s-card">
+          <h2 data-pk3s-text="not_title">What this repository is not</h2>
+          <ul data-pk3s-list="not_items">
+            <li>Not the place for deep implementation detail of every component</li><li>Not the only way to enter the ecosystem</li><li>Not a substitute for the owning product repositories</li>
+          </ul>
+          <p class="pk3s-card-note"><strong data-pk3s-text="not_note">It is the public product path across the Productive K3S ecosystem.</strong></p>
+        </article>
+      </section>
+    </article>
+  </div>
+
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+        
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+        
+          
+          <a href="en/" class="md-footer__link md-footer__link--next" aria-label="Next: Home">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Home
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      
+      <div class="pk3s-footer-slogan">
+        
+        
+        <span
+          class="pk3s-footer-slogan__text"
+          data-pk3s-footer-slogan
+          data-pk3s-footer-slogan-en="Productive K3S: the public product path across core, infra, cli, addons, and related documentation."
+          data-pk3s-footer-slogan-es="Productive K3S: el camino publico de producto entre core, infra, cli, addons y la documentacion relacionada."
+        >
+          Productive K3S: the public product path across core, infra, cli, addons, and related documentation.
+        </span>
+      </div>
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      <div class="pk3s-footer-meta-row pk3s-footer-meta-row--top">
+        <div class="pk3s-footer-cluster">
+          
+            <div class="pk3s-footer-social">
+              
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/productive-k3s/productive-k3s" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+            </div>
+          
+          <div class="pk3s-footer-contact">
+            <a
+              href="#"
+              onclick="return false;"
+              class="pk3s-footer-contact__link"
+              data-pk3s-footer-contact-label
+              data-pk3s-footer-contact-label-en="Contact"
+              data-pk3s-footer-contact-label-es="Contacto"
+            >
+              Contact
+            </a>
+          </div>
+        </div>
+        <form
+          class="pk3s-footer-newsletter"
+          action="#"
+          method="post"
+          data-pk3s-newsletter-form
+          data-pk3s-newsletter-api-base-url="https://productive-k3s-newsletter.jose-macchi.workers.dev"
+          data-pk3s-newsletter-success-en="Thanks for subscribing."
+          data-pk3s-newsletter-success-es="Gracias por suscribirte."
+          data-pk3s-newsletter-duplicate-en="You are already subscribed."
+          data-pk3s-newsletter-duplicate-es="Ya estabas suscripto."
+          data-pk3s-newsletter-invalid-en="Enter a valid e-mail address."
+          data-pk3s-newsletter-invalid-es="Ingresa un e-mail valido."
+          data-pk3s-newsletter-error-en="Could not submit right now. Please try again."
+          data-pk3s-newsletter-error-es="No se pudo enviar ahora. Intenta nuevamente."
+        >
+          <label
+            class="pk3s-footer-newsletter__label"
+            for="pk3s-newsletter-email"
+            data-pk3s-footer-newsletter-label
+            data-pk3s-footer-newsletter-label-en="Newsletter"
+            data-pk3s-footer-newsletter-label-es="Newsletter"
+          >
+            Newsletter
+          </label>
+          <div class="pk3s-footer-newsletter__field">
+            <input
+              id="pk3s-newsletter-email"
+              type="email"
+              name="email"
+              required
+              data-pk3s-footer-newsletter-placeholder-en="E-mail"
+              data-pk3s-footer-newsletter-placeholder-es="E-mail"
+              placeholder="E-mail"
+            />
+            <button type="submit" aria-label="Submit newsletter form">›</button>
+          </div>
+          <div
+            class="pk3s-footer-newsletter__message"
+            data-pk3s-newsletter-message
+            role="status"
+            aria-live="polite"
+          ></div>
+        </form>
+        <div class="pk3s-footer-argentina">
+          <img src="assets/images/argentina.png" alt="Argentina" />
+        </div>
+      </div>
+      <div class="pk3s-footer-meta-row pk3s-footer-meta-row--bottom">
+        <div class="pk3s-footer-credit">
+          
+          
+          <span
+            data-pk3s-footer-credit-prefix
+            data-pk3s-footer-credit-prefix-en="Made with"
+            data-pk3s-footer-credit-prefix-es="Hecho con"
+          >
+            Made with
+          </span>
+          <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">Material for MkDocs</a>
+        </div>
+        <div
+          class="pk3s-footer-argentina__credit"
+          data-pk3s-footer-argentina-credit
+          data-pk3s-footer-argentina-credit-en="Made in Argentina"
+          data-pk3s-footer-argentina-credit-es="Hecho en Argentina"
+        >
+          Made in Argentina
+        </div>
+      </div>
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": ".", "features": ["navigation.tabs", "navigation.indexes", "navigation.path", "navigation.sections", "navigation.expand", "navigation.footer", "navigation.top", "toc.follow", "search.suggest", "search.highlight", "content.code.copy"], "search": "assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+  
+      <script src="assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="assets/playbooks/vendor/asciinema-player.min.js"></script>
+      
+        <script src="assets/playbooks/playbooks.js"></script>
+      
+    
+  <script>
+    (() => {
+      const params = new URLSearchParams(window.location.search);
+      const requestedLang = params.get("lang") === "es" ? "es" : "en";
+      if (requestedLang === "es") {
+        document.documentElement.lang = "es";
+      }
+      const langSwitch = document.querySelector(".pk3s-lang-switch");
+      if (langSwitch) {
+        const [enLink, esLink] = langSwitch.querySelectorAll("a");
+        enLink.classList.toggle("is-active", requestedLang === "en");
+        esLink.classList.toggle("is-active", requestedLang === "es");
+      }
+      const tabs = document.querySelector(".md-tabs__list");
+      if (tabs) {
+        const tabLinks = tabs.querySelectorAll(".md-tabs__link");
+        const rootTabs = {
+          en: [
+            { label: "Home", href: "." },
+            { label: "Ecosystem", href: "en/ecosystem/" },
+            { label: "Quickstarts", href: "en/quickstarts/" },
+            { label: "Playbooks", href: "en/playbooks/" },
+            { label: "Roadmap", href: "en/roadmap/" }
+          ],
+          es: [
+            { label: "Inicio", href: ".?lang=es" },
+            { label: "Ecosistema", href: "es/ecosystem/" },
+            { label: "Quickstarts", href: "es/quickstarts/" },
+            { label: "Playbooks", href: "es/playbooks/" },
+            { label: "Roadmap", href: "es/roadmap/" }
+          ]
+        };
+        rootTabs[requestedLang].forEach((item, index) => {
+          const link = tabLinks[index];
+          if (!link) return;
+          link.textContent = item.label;
+          link.setAttribute("href", item.href);
+        });
+      }
+
+      const translations = {
+        en: {
+          eyebrow: "Public product path for the Productive K3S ecosystem",
+          hero_title: "Productive K3S",
+          lead: "Productive K3S is a pragmatic path to real Kubernetes without the usual pain.",
+          sublead: "Start simple, grow modularly, and follow a clear path across the base platform, deployment layer, curated solutions, cluster extensions, and the recommended CLI experience.",
+          primary_label: "View on GitHub",
+          secondary_label: "Understand the model",
+          card_title: "What Productive K3S gives you",
+          card_items: ["A simple starting point for real Kubernetes", "A modular path that can grow with your needs", "Curated deployment and extension layers instead of ad hoc assembly", "One recommended CLI experience on top of independent components"],
+          why_title: "Why this repository exists",
+          why_option_0_label: "REAL KUBERNETES",
+          why_option_0_text: "Teams want real Kubernetes capabilities without starting from a painful operational jump.",
+          why_option_1_label: "CLEAR PATH",
+          why_option_1_text: "Users still need one place to understand the model, start simply, and move across the ecosystem without losing continuity.",
+          bridge_note: "Productive K3S is the public path that connects those pieces into one product story.",
+          bridge_points: ["Explain the conceptual model before the technical detail", "Show how the pieces fit without forcing one single interface", "Guide users toward the right starting path"],
+          scenarios_title: "Component map",
+          scenarios: ["Core: start with a real Kubernetes base in the simplest practical way", "Infra: deploy complete solutions on different platforms", "Profiles: use curated solutions ready to deploy", "Addons: extend the cluster with curated packages", "CLI: use the simplest and recommended unified interface"],
+          principles_title: "Portal principles",
+          principles: [{"text": "start with what the ecosystem enables before diving into how the internals are split", "title": "Solution-first"}, {"text": "technical depth belongs in the owning repository, not duplicated here", "title": "Repository-linked"}, {"text": "English and Spanish remain first-class for the public path into the ecosystem", "title": "Bilingual path"}],
+          environments_title: "Recommended ways to start",
+          environments: ["I want to start simple: begin with Productive K3S Core", "I want to deploy a complete solution: continue to Infra and Profiles", "I want one recommended interface for the whole experience: use Productive K3S CLI", "I want to understand how the pieces fit: open the ecosystem model pages"],
+          not_title: "What this repository is not",
+          not_items: ["Not the place for deep implementation detail of every component", "Not the only way to enter the ecosystem", "Not a substitute for the owning product repositories"],
+          not_note: "It is the public product path across the Productive K3S ecosystem."
+        },
+        es: {
+          eyebrow: "Camino p\u00fablico de producto para el ecosistema Productive K3S",
+          hero_title: "Productive K3S",
+          lead: "Productive K3S es un camino pragm\u00e1tico hacia Kubernetes real sin el dolor habitual.",
+          sublead: "Empez\u00e1 por lo simple, crec\u00e9 de forma modular y segu\u00ed un camino claro entre la base de la plataforma, la capa de despliegue, las soluciones curadas, las extensiones del cluster y la experiencia recomendada v\u00eda CLI.",
+          primary_label: "Ver en GitHub",
+          secondary_label: "Entender el modelo",
+          card_title: "Qu\u00e9 te da Productive K3S",
+          card_items: ["Un punto de partida simple para Kubernetes real", "Un camino modular que puede crecer con tus necesidades", "Capas curadas de despliegue y extensi\u00f3n en lugar de ensamblado ad hoc", "Una experiencia recomendada de CLI por encima de componentes independientes"],
+          why_title: "Por qu\u00e9 existe este repositorio",
+          why_option_0_label: "KUBERNETES REAL",
+          why_option_0_text: "Los equipos quieren capacidades reales de Kubernetes sin arrancar desde un salto operativo doloroso.",
+          why_option_1_label: "CAMINO CLARO",
+          why_option_1_text: "Aun as\u00ed, necesitan un lugar para entender el modelo, empezar simple y moverse por el ecosistema sin perder continuidad.",
+          bridge_note: "Productive K3S es el camino p\u00fablico que conecta esas piezas dentro de una misma historia de producto.",
+          bridge_points: ["Explicar el modelo conceptual antes del detalle t\u00e9cnico", "Mostrar c\u00f3mo encajan las piezas sin forzar una \u00fanica interfaz", "Guiar a los usuarios hacia el camino inicial correcto"],
+          scenarios_title: "Mapa de componentes",
+          scenarios: ["Core: empez\u00e1 con una base real de Kubernetes de la forma m\u00e1s simple posible", "Infra: despleg\u00e1 soluciones completas sobre distintas plataformas", "Profiles: us\u00e1 soluciones curadas listas para desplegar", "Addons: extend\u00e9 el cluster con paquetes curados", "CLI: us\u00e1 la interfaz unificada m\u00e1s simple y recomendada"],
+          principles_title: "Principios del portal",
+          principles: [{"text": "empez\u00e1 por lo que habilita el ecosistema antes de entrar en c\u00f3mo se separan sus internals", "title": "Soluci\u00f3n primero"}, {"text": "la profundidad t\u00e9cnica pertenece al repositorio due\u00f1o, no duplicada ac\u00e1", "title": "Vinculado a repositorios"}, {"text": "ingl\u00e9s y espa\u00f1ol siguen siendo de primera clase para el camino p\u00fablico dentro del ecosistema", "title": "Camino biling\u00fce"}],
+          environments_title: "Caminos recomendados para empezar",
+          environments: ["Quiero empezar simple: arranc\u00e1 con Productive K3S Core", "Quiero desplegar una soluci\u00f3n completa: segu\u00ed por Infra y Profiles", "Quiero una sola interfaz recomendada para toda la experiencia: us\u00e1 Productive K3S CLI", "Quiero entender c\u00f3mo encajan las piezas: abr\u00ed las p\u00e1ginas del modelo del ecosistema"],
+          not_title: "Qu\u00e9 no es este repositorio",
+          not_items: ["No es el lugar para la profundidad de implementaci\u00f3n de cada componente", "No es la \u00fanica forma de entrar al ecosistema", "No reemplaza a los repositorios due\u00f1os del producto"],
+          not_note: "Es el camino p\u00fablico de producto a trav\u00e9s del ecosistema Productive K3S."
+        }
+      };
+
+      const active = translations[requestedLang];
+      document.querySelectorAll("[data-pk3s-text]").forEach((node) => {
+        const key = node.dataset.pk3sText;
+        if (active[key]) {
+          node.textContent = active[key];
+        }
+      });
+
+      document.querySelectorAll("[data-pk3s-list]").forEach((node) => {
+        const key = node.dataset.pk3sList;
+        const listClass = node.dataset.pk3sListClass || "";
+        const listType = node.dataset.pk3sListType || "default";
+        const items = active[key];
+        if (!Array.isArray(items)) return;
+        node.innerHTML = "";
+        items.forEach((item) => {
+          const child = document.createElement(listClass ? "div" : "li");
+          if (listClass) {
+            child.className = listClass;
+            child.textContent = item;
+          } else if (listType === "principles") {
+            child.innerHTML = `<strong>${item.title}</strong>: ${item.text}`;
+          } else {
+            child.textContent = item;
+          }
+          node.appendChild(child);
+        });
+      });
+
+      const footerSlogan = document.querySelector("[data-pk3s-footer-slogan]");
+      if (footerSlogan) {
+        footerSlogan.textContent = requestedLang === "es"
+          ? footerSlogan.dataset.pk3sFooterSloganEs
+          : footerSlogan.dataset.pk3sFooterSloganEn;
+      }
+
+      const footerCreditPrefix = document.querySelector("[data-pk3s-footer-credit-prefix]");
+      if (footerCreditPrefix) {
+        footerCreditPrefix.textContent = requestedLang === "es"
+          ? footerCreditPrefix.dataset.pk3sFooterCreditPrefixEs
+          : footerCreditPrefix.dataset.pk3sFooterCreditPrefixEn;
+      }
+    })();
+  </script>
+
+  </body>
+</html>

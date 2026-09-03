@@ -1,0 +1,52 @@
+.pk3s-playbook-card {
+  margin: 0 0 1.2rem;
+  padding: 1.1rem 1.15rem 1rem;
+  border: 1px solid rgba(216, 226, 241, 0.96);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow: 0 12px 28px rgba(19, 34, 56, 0.06);
+}
+
+.pk3s-playbook-card__eyebrow {
+  margin-bottom: 0.5rem;
+  color: var(--pk3s-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pk3s-playbook-card h3 {
+  margin-top: 0;
+  margin-bottom: 0.45rem;
+}
+
+.pk3s-playbook-card p {
+  margin-top: 0;
+}
+
+.pk3s-playbook-card pre,
+.pk3s-playbook-inline-command pre {
+  margin-bottom: 0;
+  border-radius: 14px;
+  background: #0f1724;
+}
+
+.pk3s-playbook-cast,
+.pk3s-playbook-cast-empty {
+  margin: 0 0 1.2rem;
+  padding: 1rem;
+  border: 1px solid rgba(216, 226, 241, 0.96);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 12px 28px rgba(19, 34, 56, 0.06);
+}
+
+.pk3s-playbook-cast__player {
+  min-height: 140px;
+}
+
+.pk3s-playbook-cast__fallback {
+  margin-top: 0.8rem;
+  font-size: 0.9rem;
+}

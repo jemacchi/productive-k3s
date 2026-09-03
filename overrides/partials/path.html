@@ -1,0 +1,67 @@
+{% if page and page.url and page.url.startswith('es/') %}
+  {% set crumb_home_label = "Inicio" %}
+  {% set crumb_home_url = base_url ~ "?lang=es" %}
+{% else %}
+  {% set crumb_home_label = "Home" %}
+  {% set crumb_home_url = base_url %}
+{% endif %}
+
+{% set crumbs = [] %}
+{% if page and page.url %}
+  {% if page.url in ['en/', 'es/'] %}
+    {% set crumbs = [] %}
+  {% elif page.url in ['en/ecosystem/', 'es/ecosystem/'] %}
+    {% set crumbs = [{"label": "Ecosistema" if page.url.startswith('es/') else "Ecosystem", "url": None}] %}
+  {% elif '/ecosystem/' in page.url %}
+    {% set crumbs = [{"label": "Ecosistema" if page.url.startswith('es/') else "Ecosystem", "url": "es/ecosystem/" if page.url.startswith('es/') else "en/ecosystem/"}] %}
+  {% elif page.url in ['en/quickstarts/', 'es/quickstarts/'] %}
+    {% set crumbs = [{"label": "Quickstarts", "url": None}] %}
+  {% elif '/quickstarts/' in page.url %}
+    {% set crumbs = [{"label": "Quickstarts", "url": "es/quickstarts/" if page.url.startswith('es/') else "en/quickstarts/"}] %}
+  {% elif page.url in ['en/playbooks/', 'es/playbooks/'] %}
+    {% set crumbs = [{"label": "Playbooks", "url": None}] %}
+  {% elif '/playbooks/' in page.url %}
+    {% set playbooks_root = "es/playbooks/" if page.url.startswith('es/') else "en/playbooks/" %}
+    {% set product_segment = page.url.split('/')[2] if page.url.count('/') >= 2 else '' %}
+    {% set product_label = product_segment.replace('-', ' ').title() if product_segment else '' %}
+    {% if product_segment and page.url not in [playbooks_root, playbooks_root ~ product_segment ~ '/'] %}
+      {% set crumbs = [{"label": "Playbooks", "url": playbooks_root}, {"label": product_label, "url": playbooks_root ~ product_segment ~ "/"}] %}
+    {% else %}
+      {% set crumbs = [{"label": "Playbooks", "url": playbooks_root}] %}
+    {% endif %}
+  {% elif page.url in ['en/roadmap/', 'es/roadmap/'] %}
+    {% set crumbs = [{"label": "Roadmap", "url": None}] %}
+  {% elif '/roadmap/' in page.url %}
+    {% set crumbs = [{"label": "Roadmap", "url": "es/roadmap/" if page.url.startswith('es/') else "en/roadmap/"}] %}
+  {% endif %}
+{% endif %}
+
+<nav class="md-path" aria-label="{{ 'Navegación' if page and page.url and page.url.startswith('es/') else lang.t('nav') }}">
+  <ol class="md-path__list">
+    <li class="md-path__item">
+      <a href="{{ crumb_home_url }}" class="md-path__link">
+        <span class="md-ellipsis">{{ crumb_home_label }}</span>
+      </a>
+    </li>
+    {% for crumb in crumbs %}
+      <li class="md-path__item">
+        {% if crumb.url and not loop.last %}
+          <a href="{{ crumb.url | url }}" class="md-path__link">
+            <span class="md-ellipsis">{{ crumb.label }}</span>
+          </a>
+        {% else %}
+          <a href="{{ crumb.url | url if crumb.url else '#' }}" class="md-path__link">
+            <span class="md-ellipsis">{{ crumb.label }}</span>
+          </a>
+        {% endif %}
+      </li>
+    {% endfor %}
+    {% if page and page.url not in ['en/', 'es/', 'en/ecosystem/', 'es/ecosystem/', 'en/quickstarts/', 'es/quickstarts/', 'en/playbooks/', 'es/playbooks/', 'en/roadmap/', 'es/roadmap/'] %}
+      <li class="md-path__item">
+        <a href="#" class="md-path__link">
+          <span class="md-ellipsis">{{ page.title }}</span>
+        </a>
+      </li>
+    {% endif %}
+  </ol>
+</nav>

@@ -1,0 +1,8 @@
+{"version": 2, "width": 140, "height": 32, "timestamp": 1787965000, "title": "infra playbook: list profiles source", "env": {"TERM": "xterm-256color", "SHELL": "/bin/bash"}}
+[0.0, "o", "$ bash playbooks/infra/scripts/02-list-profiles-source.sh --execute\r\n"]
+[0.18, "o", "# List the current curated source profiles\r\n"]
+[0.36, "o", "profiles/cloud/aws-single-node/basic.env\r\n"]
+[0.54, "o", "profiles/edge/on-prem/arm.env\r\n"]
+[0.72, "o", "profiles/edge/on-prem/basic.env\r\n"]
+[0.9, "o", "profiles/local/multipass/1-server-2-agents.env\r\n"]
+[1.15, "o", "$ "]

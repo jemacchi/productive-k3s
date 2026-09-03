@@ -1,0 +1,12 @@
+{"version": 2, "width": 140, "height": 28, "timestamp": 1788422400, "title": "cli playbook: profile fixture contract", "env": {"TERM": "xterm-256color", "SHELL": "/bin/bash"}}
+[0.0, "o", "$ bash playbooks/cli/scripts/10-profile-fixture-contract.sh --execute\r\n"]
+[0.12, "o", "# Review the CLI profile fixture contract artifact\r\n"]
+[0.34, "o", "{\r\n"]
+[0.46, "o", "  \"ended_at\": \"2026-09-01T14:32:56Z\",\r\n"]
+[0.58, "o", "  \"message\": \"Profile fixture contains required infra contract variables.\",\r\n"]
+[0.7, "o", "  \"name\": \"profile-command-contract\",\r\n"]
+[0.82, "o", "  \"schema_version\": \"productive-k3s-cli-test-result/v1\",\r\n"]
+[0.94, "o", "  \"started_at\": \"2026-09-01T14:32:56Z\",\r\n"]
+[1.06, "o", "  \"status\": \"passed\"\r\n"]
+[1.18, "o", "}\r\n"]
+[1.36, "o", "$ "]

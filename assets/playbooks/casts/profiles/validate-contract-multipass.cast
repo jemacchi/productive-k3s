@@ -1,0 +1,12 @@
+{"version": 2, "width": 140, "height": 36, "timestamp": 1788422400, "title": "profiles playbook: validate-contract-multipass", "env": {"TERM": "xterm-256color", "SHELL": "/bin/bash"}}
+[0.0, "o", "$ bash playbooks/profiles/scripts/03-validate-contract-multipass.sh --execute\r\n"]
+[0.12, "o", "[2026-08-31 20:45:16-0300] [STAGE:matrix] [2026-08-31 20:45:16-0300] [INFO] scenario=multipass level=contract target=scenario-test-contract\r\n"]
+[0.24, "o", "[2026-08-31 20:45:17-0300] [STAGE:matrix] [2026-08-31 20:45:17-0300] [PASS] multipass scenario-test-contract duration=1s\r\n"]
+[0.36, "o", "[2026-08-31 20:45:17-0300] [STAGE:matrix] [2026-08-31 20:45:17-0300] make[3]: Entering directory '/tmp/tmp.RMxpXoVIWJ/productive-k3s-profiles/scenarios/local/multipass'\r\n"]
+[0.48, "o", "[2026-08-31 20:45:17-0300] [STAGE:matrix] [2026-08-31 20:45:17-0300] /tmp/tmp.RMxpXoVIWJ/productive-k3s-profiles/scenarios/local/multipass/../../../tests/contract-check.sh multipass\r\n"]
+[0.6, "o", "[2026-08-31 20:45:17-0300] [STAGE:matrix] [2026-08-31 20:45:17-0300] [PASS] contract checks for multipass\r\n"]
+[0.72, "o", "[2026-08-31 20:45:17-0300] [STAGE:matrix] [2026-08-31 20:45:17-0300] make[3]: Leaving directory '/tmp/tmp.RMxpXoVIWJ/productive-k3s-profiles/scenarios/local/multipass'\r\n"]
+[0.84, "o", "[2026-08-31 20:45:17-0300] [STAGE:matrix] [INFO] Cloning productive-k3s-core from URL: https://github.com/productive-k3s/productive-k3s-core.git (ref: development)\r\n"]
+[0.96, "o", "[2026-08-31 20:45:18-0300] [STAGE:matrix] [INFO] Defaulting PRODUCTIVE_K3S_SOURCE to local because a productive-k3s-core checkout is available\r\n"]
+[1.08, "o", "[2026-08-31 20:45:18-0300] [STAGE:matrix] [INFO] Cloning productive-k3s-addons from URL: https://github.com/productive-k3s/productive-k3s-addons.git (ref: development)\r\n"]
+[1.26, "o", "$ "]
