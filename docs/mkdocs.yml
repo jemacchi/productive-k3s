@@ -35,6 +35,12 @@ theme:
 
 extra_css:
   - assets/stylesheets/extra.css
+  - assets/playbooks/vendor/asciinema-player.css
+  - assets/playbooks/playbooks.css
+
+extra_javascript:
+  - assets/playbooks/vendor/asciinema-player.min.js
+  - assets/playbooks/playbooks.js
 
 markdown_extensions:
   - admonition
@@ -73,6 +79,13 @@ nav:
           - Choosing your starting point: en/quickstarts/choosing-a-path.md
           - Local-first path: en/quickstarts/local-first.md
           - CLI-oriented path: en/quickstarts/cli-first.md
+      - Playbooks:
+          - en/playbooks/index.md
+          - Core: en/playbooks/core/index.md
+          - Addons: en/playbooks/addons/index.md
+          - Infra: en/playbooks/infra/index.md
+          - Profiles: en/playbooks/profiles/index.md
+          - CLI: en/playbooks/cli/index.md
       - Roadmap:
           - en/roadmap/index.md
           - Release direction: en/roadmap/release-direction.md
@@ -87,6 +100,13 @@ nav:
           - Elegir un punto de entrada: es/quickstarts/choosing-a-path.md
           - Camino local primero: es/quickstarts/local-first.md
           - Camino orientado a CLI: es/quickstarts/cli-first.md
+      - Playbooks:
+          - es/playbooks/index.md
+          - Core: es/playbooks/core/index.md
+          - Addons: es/playbooks/addons/index.md
+          - Infra: es/playbooks/infra/index.md
+          - Profiles: es/playbooks/profiles/index.md
+          - CLI: es/playbooks/cli/index.md
       - Hoja de ruta:
           - es/roadmap/index.md
           - Dirección de releases: es/roadmap/release-direction.md

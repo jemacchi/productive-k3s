@@ -1,0 +1,9 @@
+{"version": 2, "width": 120, "height": 24, "timestamp": 1788422400, "title": "cli playbook: addon list basic", "env": {"TERM": "xterm-256color", "SHELL": "/bin/bash"}}
+[0.0, "o", "$ bash playbooks/cli/scripts/05-addon-list-basic.sh --execute\r\n"]
+[0.12, "o", "# Inspect the catalog-backed addon listing surface\r\n"]
+[0.34, "o", "cert-manager\t0.1.0\tplatform\r\n"]
+[0.46, "o", "longhorn\t0.1.0\tplatform\r\n"]
+[0.58, "o", "nginx\t0.1.0\texample\r\n"]
+[0.7, "o", "rancher\t0.1.0\tplatform\r\n"]
+[0.82, "o", "registry\t0.1.0\tplatform\r\n"]
+[1.0, "o", "$ "]

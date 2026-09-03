@@ -1,0 +1,6 @@
+{"version": 2, "width": 80, "height": 24, "timestamp": 1787611422, "env": {"SHELL": "/bin/bash", "TERM": null}, "title": "core playbook: addon validate package"}
+[0.0, "o", "$ ./productive-k3s-core.sh addon validate --tgz '/home/ubuntu/real-20260824-vm1/nginx-addon.tgz'\r\n"]
+[0.022, "o", "Addon package: nginx\r\n"]
+[0.022, "o", "Addon type: helm\r\n"]
+[0.022, "o", "Install script: scripts/install.sh\r\n"]
+[0.022, "o", "Addon package validation passed\r\n$ "]

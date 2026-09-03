@@ -18,6 +18,17 @@
     {% set crumbs = [{"label": "Quickstarts", "url": None}] %}
   {% elif '/quickstarts/' in page.url %}
     {% set crumbs = [{"label": "Quickstarts", "url": "es/quickstarts/" if page.url.startswith('es/') else "en/quickstarts/"}] %}
+  {% elif page.url in ['en/playbooks/', 'es/playbooks/'] %}
+    {% set crumbs = [{"label": "Playbooks", "url": None}] %}
+  {% elif '/playbooks/' in page.url %}
+    {% set playbooks_root = "es/playbooks/" if page.url.startswith('es/') else "en/playbooks/" %}
+    {% set product_segment = page.url.split('/')[2] if page.url.count('/') >= 2 else '' %}
+    {% set product_label = product_segment.replace('-', ' ').title() if product_segment else '' %}
+    {% if product_segment and page.url not in [playbooks_root, playbooks_root ~ product_segment ~ '/'] %}
+      {% set crumbs = [{"label": "Playbooks", "url": playbooks_root}, {"label": product_label, "url": playbooks_root ~ product_segment ~ "/"}] %}
+    {% else %}
+      {% set crumbs = [{"label": "Playbooks", "url": playbooks_root}] %}
+    {% endif %}
   {% elif page.url in ['en/roadmap/', 'es/roadmap/'] %}
     {% set crumbs = [{"label": "Roadmap", "url": None}] %}
   {% elif '/roadmap/' in page.url %}
@@ -45,7 +56,7 @@
         {% endif %}
       </li>
     {% endfor %}
-    {% if page and page.url not in ['en/', 'es/', 'en/ecosystem/', 'es/ecosystem/', 'en/quickstarts/', 'es/quickstarts/', 'en/roadmap/', 'es/roadmap/'] %}
+    {% if page and page.url not in ['en/', 'es/', 'en/ecosystem/', 'es/ecosystem/', 'en/quickstarts/', 'es/quickstarts/', 'en/playbooks/', 'es/playbooks/', 'en/roadmap/', 'es/roadmap/'] %}
       <li class="md-path__item">
         <a href="#" class="md-path__link">
           <span class="md-ellipsis">{{ page.title }}</span>

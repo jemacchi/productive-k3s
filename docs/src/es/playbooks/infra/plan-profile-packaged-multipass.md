@@ -1,0 +1,35 @@
+<!-- generated: playbooks-export-mkdocs -->
+# Plan Profile Packaged Multipass
+
+Preview the package-first OpenTofu plan for a packaged `multipass` `profile.tgz`.
+
+## Comando directo del repositorio
+
+```bash
+cd productive-k3s-infra
+./productive-k3s-infra.sh profile plan --tgz /abs/path/to/multipass-profile.tgz
+```
+
+## Vista del cast
+
+<div class="pk3s-playbook-cast" data-cast-src="../../../../assets/playbooks/casts/infra/plan-profile-packaged-multipass.cast" data-cast-title="Plan Profile Packaged Multipass">
+  <div class="pk3s-playbook-cast__player"></div>
+  <div class="pk3s-playbook-cast__fallback" hidden>
+    <a href="../../../../assets/playbooks/casts/infra/plan-profile-packaged-multipass.cast">Abrir cast crudo</a>
+  </div>
+</div>
+
+## Enlaces relacionados
+
+- [Repositorio del producto](https://github.com/productive-k3s/productive-k3s-infra)
+- [Abrir cast crudo](../../../assets/playbooks/casts/infra/plan-profile-packaged-multipass.cast)
+
+## Detalle del escenario
+
+Preview the package-first OpenTofu plan for a packaged `multipass` `profile.tgz`.
+
+```bash
+PRODUCTIVE_K3S_INFRA_PLAYBOOK_PROFILE_TGZ=/abs/path/to/multipass-profile.tgz \
+```
+
+Use this when you want to demonstrate the public package-first planning path for an OpenTofu-backed local topology without mutating infrastructure yet.
